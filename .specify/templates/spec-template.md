@@ -100,6 +100,12 @@
 - **[Entity 1]**: [What it represents, key attributes without implementation]
 - **[Entity 2]**: [What it represents, relationships to other entities]
 
+## Design & Performance Standards *(mandatory)*
+
+- **UX Consistency**: Must match design system tokens (spacing, typography, color palette).
+- **Latency Requirement**: Primary interactions must complete in <200ms.
+- **UI Verification**: Every use case must have a verified UI representation.
+
 ## Success Criteria *(mandatory)*
 
 <!--
@@ -111,8 +117,8 @@
 
 - **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
 - **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+- **SC-003**: All User Stories have a verified UI flow passing the Constitution UI Pass check.
+- **SC-004**: System handles load without exceeding 200ms interaction latency.
 
 ## Assumptions
 
