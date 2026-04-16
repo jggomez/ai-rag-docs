@@ -52,10 +52,11 @@ As a developer, I want to see the status of a document's ingestion (pending, pro
 
 - **FR-001**: System MUST retrieve files from configured Cloud Storage buckets.
 - **FR-002**: System MUST extract text from PDF, Markdown, and TXT files.
-- **FR-003**: System MUST split extracted text into semantic chunks with appropriate context overlap to ensure retrieval quality.
-- **FR-004**: System MUST generate vector embeddings for each chunk using an embedding model.
-- **FR-005**: System MUST store vectors alongside metadata (source_id, chunk_index, original_text, timestamp) in a Vector Database.
+- **FR-003**: System MUST split extracted text into semantic chunks, each containing a `subject` and a `body` field.
+- **FR-004**: System MUST generate vector embeddings for each chunk (typically based on the `body` content).
+- **FR-005**: System MUST extract and store metadata: `sender`, `contract_number`, `work_front`, `document_date`, `process`, and `response_file_url`.
 - **FR-006**: System MUST prevent duplicate ingestion of the same file version.
+- **FR-007**: System MUST store vectors alongside metadata (source_id, chunk_index, original_text, timestamp) in a Vector Database.
 
 ### Key Entities *(include if feature involves data)*
 

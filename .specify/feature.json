@@ -1,1 +1,3 @@
-{"feature_directory": "specs/001-rag-document-ingestion"}
+{
+  "feature_directory": "specs/002-csv-metadata-integration"
+}

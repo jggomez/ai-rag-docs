@@ -54,7 +54,7 @@ Every Command-triggered state change must have a corresponding, testable UI repr
 accessible via the main user journey.
 
 ## Architecture Constraints
-- **Language**: TypeScript/JavaScript (Node.js/React stack).
+- **Language**: Python.
 - **Architecture**: Hexagonal/Clean Architecture.
 - **State Management**: Predictable state flows driven by Command outcomes.
 - **API Standards**: RESTful principles with structured request/response validation.
