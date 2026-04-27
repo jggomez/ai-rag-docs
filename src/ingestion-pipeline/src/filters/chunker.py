@@ -1,5 +1,4 @@
 import logging
-from typing import List, Dict, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.filters.base import Filter
 from src.domain.entities import ProcessingPayload, DocumentChunk
@@ -27,9 +26,9 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
         
         # Base metadata for all chunks
         base_metadata = {
-            "contract_number": payload.document.contract_number,
-            "sender": payload.document.sender,
-            "work_front": payload.document.work_front
+            "contract_number": payload.document.engineering_metadata.contract_number,
+            "sender": payload.document.engineering_metadata.sender,
+            "work_front": payload.document.engineering_metadata.work_front
         }
         
         for i, chunk_content in enumerate(chunks_text):
@@ -38,7 +37,7 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
             
             if not subject or subject == "Not detected":
                 # Heuristic fallback for subject: First line or first 100 chars
-                lines = [l for l in chunk_content.split("\n") if l.strip()]
+                lines = [line for line in chunk_content.split("\n") if line.strip()]
                 subject = lines[0][:100] if lines else chunk_content[:100]
             
             chunk = DocumentChunk(
@@ -47,7 +46,7 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
                 subject=subject,
                 body=chunk_content,
                 index=i,
-                sent_file=payload.document.response_file_url,
+                sent_file=payload.document.engineering_metadata.response_file_url,
                 metadata={**base_metadata, "chunk_index": i}
             )
             payload.chunks.append(chunk)

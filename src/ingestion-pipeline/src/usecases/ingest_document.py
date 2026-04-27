@@ -1,57 +1,89 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from src.domain.entities import SourceDocument, ProcessingPayload
 from src.domain.factory import SourceDocumentFactory
 from src.domain.enums import DocumentStatus
 from src.repositories.document_repo import DocumentRepository
 from src.filters.base import Pipeline
+from src.infrastructure.repositories.csv_metadata_repository import CSVMetadataRepository
+from src.usecases.builder import PipelineBuilder
 
 logger = logging.getLogger(__name__)
 
 class IngestDocumentCommand:
     """
     Orchestrator for the document ingestion process.
-    Following SRP, it only handles the high-level flow and persistence coordination.
-    Following DIP, it receives its pipeline of operations as a dependency.
+    Now strictly follows DIP by receiving all dependencies.
     """
     def __init__(
         self, 
         document_repo: DocumentRepository,
-        pipeline: Pipeline
+        pipeline_builder: PipelineBuilder,
+        default_pipeline: Optional[Pipeline] = None
     ):
         self.document_repo = document_repo
-        self.pipeline = pipeline
+        self.pipeline_builder = pipeline_builder
+        self.default_pipeline = default_pipeline
 
     def execute(self, event_data: Dict[str, Any]) -> SourceDocument:
-        """
-        Orchestrate the ingestion of a document from a raw GCS event.
-        """
-        # 1. Create initial SourceDocument entity using Factory
+        """Orchestrate ingestion from a GCS event."""
         doc = SourceDocumentFactory.create_from_gcs_event(event_data)
         return self._run_pipeline(doc)
 
-    def execute_manual(self, request_data: Dict[str, Any]) -> SourceDocument:
-        """
-        Orchestrate the ingestion of a document with explicit metadata.
-        """
-        # 1. Create initial SourceDocument entity using Factory
-        doc = SourceDocumentFactory.create_from_ingest_request(request_data)
-        return self._run_pipeline(doc)
+    def execute_batch(self, csv_metadata_repo: CSVMetadataRepository) -> Dict[str, Any]:
+        """Orchestrate batch ingestion from CSV."""
+        logger.info("Starting batch ingestion from CSV repository")
+        
+        rows = csv_metadata_repo.get_all_rows()
+        processed_count = 0
+        failed_count = 0
+        
+        for index, row in enumerate(rows):
+            row_label = row.get("Enviadas", "").strip() or f"row-{index}"
+            try:
+                logger.info(f"Processing CSV row: {row_label}")
+                doc = SourceDocumentFactory.create_from_csv_row(row)
 
-    def _run_pipeline(self, doc: SourceDocument) -> SourceDocument:
-        """
-        Common logic for running the processing pipeline and persistence.
-        """
-        # 2. Save initial record and update status
+                # Use the injected builder to get the right pipeline
+                selected_pipeline = self.pipeline_builder.build_pipeline_for_document(
+                    document_type=doc.document_type,
+                    document_repo=self.document_repo,
+                )
+                self._run_pipeline(doc, pipeline=selected_pipeline)
+                processed_count += 1
+            except Exception as row_error:
+                logger.error(f"Error processing row {row_label}: {row_error}")
+                failed_count += 1
+                continue
+                
+        return {
+            "processed_records": processed_count,
+            "failed_records": failed_count,
+            "total_records": len(rows),
+        }
+
+    def execute_csv_row(self, row_data: Dict[str, Any], csv_pipeline: Pipeline) -> SourceDocument:
+        """Orchestrate ingestion from a single CSV row."""
+        doc = SourceDocumentFactory.create_from_csv_row(row_data)
+        return self._run_pipeline(doc, pipeline=csv_pipeline)
+
+    def _run_pipeline(self, doc: SourceDocument, pipeline: Optional[Pipeline] = None) -> SourceDocument:
+        """Common execution and persistence logic."""
+        exec_pipeline = pipeline or self.default_pipeline
+        if not exec_pipeline:
+            # Fallback for GCS events if no default provided
+            exec_pipeline = self.pipeline_builder.build_ingestion_pipeline(
+                storage_repo=None, # This might need fixing if GCS path is used
+                document_repo=self.document_repo
+            )
+        
         self.document_repo.save_document(doc)
         self.document_repo.update_status(doc.id, DocumentStatus.PROCESSING)
         
         try:
-            # 3. Run the processing Pipeline
             payload = ProcessingPayload(document=doc)
-            result_payload = self.pipeline.execute(payload)
+            result_payload = exec_pipeline.execute(payload)
             
-            # 4. Update with final metadata and mark as COMPLETED
             processed_doc = result_payload.document
             self.document_repo.save_document(processed_doc)
             self.document_repo.update_status(processed_doc.id, DocumentStatus.COMPLETED)

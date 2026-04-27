@@ -51,20 +51,20 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         def should_update(current_val):
             return current_val in [None, "", "PENDING", "UNKNOWN"]
 
-        if should_update(payload.document.contract_number):
-            payload.document.contract_number = metadata["contract_number"]
+        if should_update(payload.document.engineering_metadata.contract_number):
+            payload.document.engineering_metadata.contract_number = metadata["contract_number"]
             
-        if should_update(payload.document.sender):
-            payload.document.sender = metadata["sender"]
+        if should_update(payload.document.engineering_metadata.sender):
+            payload.document.engineering_metadata.sender = metadata["sender"]
             
-        if should_update(payload.document.work_front):
-            payload.document.work_front = metadata["work_front"]
+        if should_update(payload.document.engineering_metadata.work_front):
+            payload.document.engineering_metadata.work_front = metadata["work_front"]
             
-        if should_update(payload.document.document_date):
-            payload.document.document_date = metadata["document_date"]
+        if should_update(payload.document.engineering_metadata.document_date):
+            payload.document.engineering_metadata.document_date = metadata["document_date"]
             
-        if should_update(payload.document.process):
-            payload.document.process = metadata["process"]
+        if should_update(payload.document.engineering_metadata.process):
+            payload.document.engineering_metadata.process = metadata["process"]
         
         logger.info(f"Metadata after extraction: {payload.document.dict()}")
         return payload

@@ -1,12 +1,12 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 # Mock dependencies BEFORE importing app to avoid initialization errors
 with patch("src.repositories.storage_repo.GCSStorageRepository"), \
      patch("src.repositories.document_repo.FirestoreDocumentRepository"), \
      patch("src.infrastructure.repositories.csv_metadata_repository.CSVMetadataRepository"), \
-     patch("langchain_google_genai.GoogleGenerativeAIEmbeddings"):
+     patch("src.filters.embedder.genai.Client"):
     from src.main import app
 
 class TestApiIngest(unittest.TestCase):
@@ -14,61 +14,35 @@ class TestApiIngest(unittest.TestCase):
         self.client = TestClient(app)
 
     @patch("src.main.ingest_command")
-    def test_ingest_with_metadata_success(self, mock_command):
-        # Setup mock return value
-        mock_doc = MagicMock()
-        mock_doc.id = "test-doc-id"
-        mock_doc.filename = "test.pdf"
-        mock_command.execute_manual.return_value = mock_doc
-
-        # Request payload
-        payload = {
-            "bucket": "test-bucket",
-            "object_name": "COMMUNICATION_RECEIVED/test.pdf",
-            "sender": "Test Contractor",
-            "contract_number": "CW123",
-            "work_front": "Taller 1",
-            "document_date": "2024-04-16",
-            "process": "Ambiental",
-            "response_file_url": "gs://sent-bucket/sent.pdf"
+    @patch("src.main.csv_metadata_repo")
+    def test_ingest_batch_success(self, mock_repo, mock_command):
+        # Setup mock command result
+        mock_command.execute_batch.return_value = {
+            "processed_records": 2,
+            "total_records": 2
         }
-
-        response = self.client.post("/ingest", json=payload)
+        
+        response = self.client.post("/ingest")
 
         # Assertions
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {
-            "status": "accepted",
-            "id": "test-doc-id",
-            "file": "test.pdf"
-        })
+        result = response.json()
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["processed_records"], 2)
+        self.assertEqual(result["total_records"], 2)
         
-        # Verify command was called with right data
-        mock_command.execute_manual.assert_called_once()
-        args = mock_command.execute_manual.call_args[0][0]
-        self.assertEqual(args["bucket"], "test-bucket")
-        self.assertEqual(args["sender"], "Test Contractor")
+        # Verify execute_batch was called with the repo
+        mock_command.execute_batch.assert_called_once_with(mock_repo)
 
     @patch("src.main.ingest_command")
-    def test_ingest_with_metadata_error(self, mock_command):
-        # Setup mock to raise error
-        mock_command.execute_manual.side_effect = Exception("Processing failed")
+    def test_ingest_batch_error(self, mock_command):
+        # Setup mock command to raise error (this covers errors inside the use case)
+        mock_command.execute_batch.side_effect = Exception("Batch Processing Error")
 
-        payload = {
-            "bucket": "test-bucket",
-            "object_name": "test.pdf",
-            "sender": "Test",
-            "contract_number": "123",
-            "work_front": "A",
-            "document_date": "2024",
-            "process": "B",
-            "response_file_url": "gs://b/f.pdf"
-        }
-
-        response = self.client.post("/ingest", json=payload)
+        response = self.client.post("/ingest")
 
         self.assertEqual(response.status_code, 500)
-        self.assertIn("Processing failed", response.json()["detail"])
+        self.assertIn("Batch Processing Error", response.json()["detail"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from src.filters.base import Filter
 from src.domain.entities import ProcessingPayload
 from src.infrastructure.repositories.csv_metadata_repository import CSVMetadataRepository

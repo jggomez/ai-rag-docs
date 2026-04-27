@@ -1,11 +1,7 @@
-import os
 import logging
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 from fastapi import FastAPI, HTTPException
-from src.domain.schemas import GCSEvent, IngestRequest
+from src.config import settings
+from src.domain.schemas import GCSEvent
 from src.repositories.storage_repo import GCSStorageRepository
 from src.repositories.document_repo import FirestoreDocumentRepository
 from src.infrastructure.repositories.csv_metadata_repository import CSVMetadataRepository
@@ -13,46 +9,55 @@ from src.usecases.builder import PipelineBuilder
 from src.usecases.ingest_document import IngestDocumentCommand
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RAG Ingestion Pipeline")
 
-# Dependency injection and wiring
+# 1. Dependency injection and wiring
 storage_repo = GCSStorageRepository()
 document_repo = FirestoreDocumentRepository()
+csv_metadata_repo = CSVMetadataRepository(settings.metadata_csv_path)
 
-# Initialize optional CSV Metadata Repository
-csv_path = os.environ.get("METADATA_CSV_PATH", "resources/Comunicaciones.csv")
-csv_metadata_repo = CSVMetadataRepository(csv_path)
+# 2. Initialize the Builder service with settings
+pipeline_builder = PipelineBuilder(settings)
 
-# Use the builder to construct the ingestion pipeline
-pipeline = PipelineBuilder.build_ingestion_pipeline(
+# 3. Construct the default ingestion pipeline (legacy/GCS)
+default_pipeline = pipeline_builder.build_ingestion_pipeline(
     storage_repo, 
     document_repo,
     csv_metadata_repo=csv_metadata_repo
 )
 
-# Inject document_repo and the pipeline into the command
-ingest_command = IngestDocumentCommand(document_repo, pipeline)
+# 4. Inject document_repo and the builder into the command
+ingest_command = IngestDocumentCommand(
+    document_repo=document_repo, 
+    pipeline_builder=pipeline_builder,
+    default_pipeline=default_pipeline
+)
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
 @app.post("/ingest")
-async def ingest_with_metadata(request: IngestRequest):
+async def ingest_with_metadata():
     """
-    Trigger ingestion with explicit metadata.
+    Trigger ingestion for all records in the local communications.csv file.
+    This uses the strategy-based pipeline selection inside the command.
     """
     try:
-        logger.info(f"Received manual ingestion request for: gs://{request.bucket}/{request.object_name}")
+        logger.info(f"Starting batch ingestion from local CSV: {settings.metadata_csv_path}")
         
-        doc = ingest_command.execute_manual(request.dict(by_alias=True))
+        result = ingest_command.execute_batch(csv_metadata_repo)
         
-        return {"status": "accepted", "id": doc.id, "file": doc.filename}
+        return {
+            "status": "completed", 
+            "processed_records": result["processed_records"],
+            "total_records": result["total_records"]
+        }
     except Exception as e:
-        logger.error(f"Error in manual ingestion: {str(e)}")
+        logger.error(f"Error in CSV batch ingestion: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/")
@@ -81,4 +86,4 @@ async def handle_event(event: GCSEvent):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    uvicorn.run(app, host="0.0.0.0", port=settings.port)

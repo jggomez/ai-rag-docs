@@ -1,4 +1,3 @@
-import pytest
 from src.filters.base import Filter, Pipeline
 
 class AddOneFilter(Filter[int, int]):

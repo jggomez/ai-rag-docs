@@ -1,4 +1,3 @@
-import pytest
 from src.filters.cleaner import document_cleaner
 
 def test_document_cleaner_basic():

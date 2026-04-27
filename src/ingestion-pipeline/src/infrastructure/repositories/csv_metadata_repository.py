@@ -1,23 +1,26 @@
 import csv
 import logging
 import os
-from typing import Dict, Optional, Any
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 class CSVMetadataRepository:
     """
     Repository for accessing document metadata stored in a CSV file.
+    Supports both legacy single-key lookup (by 'Enviadas') and
+    dual-URL iteration for Drive-based ingestion.
     Provides O(1) lookup after initial load.
     """
 
     def __init__(self, csv_path: str):
         self.csv_path = csv_path
         self._data: Dict[str, Dict[str, str]] = {}
+        self._rows: List[Dict[str, str]] = []
         self._is_loaded = False
 
     def _load_data(self):
-        """Loads CSV data into an in-memory dictionary."""
+        """Loads CSV data into an in-memory dictionary and row list."""
         if not os.path.exists(self.csv_path):
             logger.error(f"Metadata CSV not found at: {self.csv_path}")
             return
@@ -26,13 +29,15 @@ class CSVMetadataRepository:
             with open(self.csv_path, mode='r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # 'Enviadas' contains the document ID/filename (e.g., INT-OC-CYS-291/25)
+                    self._rows.append(row)
+
+                    # Legacy keyed index by 'Enviadas' column
                     key = row.get("Enviadas", "").strip()
                     if key:
                         self._data[key] = row
             
             self._is_loaded = True
-            logger.info(f"Successfully loaded {len(self._data)} metadata records from {self.csv_path}")
+            logger.info(f"Successfully loaded {len(self._rows)} rows ({len(self._data)} keyed records) from {self.csv_path}")
         except Exception as e:
             logger.error(f"Error loading metadata CSV: {str(e)}")
 
@@ -55,3 +60,21 @@ class CSVMetadataRepository:
             metadata = self._data.get(alt_id)
             
         return metadata
+
+    def get_all_records(self) -> Dict[str, Dict[str, str]]:
+        """
+        Returns all keyed metadata records from the CSV (legacy).
+        Useful for batch ingestion of 'Enviadas' documents.
+        """
+        if not self._is_loaded:
+            self._load_data()
+        return self._data
+
+    def get_all_rows(self) -> List[Dict[str, str]]:
+        """
+        Returns every row from the CSV as a list of dicts.
+        Supports iteration over both recibidas_url and enviadas_url rows.
+        """
+        if not self._is_loaded:
+            self._load_data()
+        return self._rows

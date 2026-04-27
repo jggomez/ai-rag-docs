@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from src.domain.entities import SourceDocument, DocumentChunk
 from src.domain.enums import DocumentStatus
+from google.cloud import firestore
+from google.cloud.firestore_v1.vector import Vector
 
 class DocumentRepository(ABC):
     @abstractmethod
@@ -20,7 +22,6 @@ class DocumentRepository(ABC):
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         pass
 
-from google.cloud import firestore
 
 class FirestoreDocumentRepository(DocumentRepository):
     def __init__(self, database: str = "(default)", client: firestore.Client = None):
@@ -51,5 +52,8 @@ class FirestoreDocumentRepository(DocumentRepository):
         batch = self.client.batch()
         for chunk in chunks:
             chunk_ref = self.chunks_collection.document(chunk.id)
-            batch.set(chunk_ref, chunk.model_dump())
+            data = chunk.model_dump()
+            if chunk.embedding:
+                data["embedding"] = Vector(chunk.embedding)
+            batch.set(chunk_ref, data)
         batch.commit()

@@ -3,7 +3,6 @@ import requests
 import os
 import argparse
 import logging
-from typing import List, Dict
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,8 +33,6 @@ def batch_ingest(csv_path: str, bucket: str):
 
                 # Construct the GCS object name. 
                 # Assuming they are stored in COMMUNICATION_RECEIVED/ with .pdf extension
-                # and slashes are replaced by underscores in GCS (or kept as is)
-                # For this script, we assume the API knows how to find them.
                 object_name = f"COMMUNICATION_RECEIVED/{doc_id}.pdf"
                 
                 payload = {
@@ -68,11 +65,32 @@ def batch_ingest(csv_path: str, bucket: str):
     except Exception as e:
         logger.error(f"Error reading CSV: {str(e)}")
 
+def trigger_batch():
+    """
+    Triggers the batch ingestion process via the server-side API endpoint.
+    """
+    logger.info(f"Triggering server-side batch ingestion at: {API_URL}")
+    
+    try:
+        response = requests.post(API_URL)
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"Batch ingestion started successfully.")
+            logger.info(f"Result: {result}")
+        else:
+            logger.error(f"Failed to trigger batch ingestion: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Error calling API: {str(e)}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Batch ingest communications from CSV")
     parser.add_argument("--csv", default="src/resources/Comunicaciones.csv", help="Path to the metadata CSV")
     parser.add_argument("--bucket", default=DEFAULT_BUCKET, help="GCS bucket where PDFs are stored")
+    parser.add_argument("--mode", choices=["client", "server"], default="client", help="Ingestion mode: client (row by row) or server (bulk)")
     
     args = parser.parse_args()
     
-    batch_ingest(args.csv, args.bucket)
+    if args.mode == "server":
+        trigger_batch()
+    else:
+        batch_ingest(args.csv, args.bucket)

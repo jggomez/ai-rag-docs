@@ -1,39 +1,46 @@
 import logging
-from typing import List
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from google import genai
+from google.genai import types
 from src.filters.base import Filter
 from src.domain.entities import ProcessingPayload
 
 logger = logging.getLogger(__name__)
 
 class VectorEmbedder(Filter[ProcessingPayload, ProcessingPayload]):
-    def __init__(self, api_key: str, model: str = "models/embedding-001"):
+    def __init__(self, api_key: str, model: str = "gemini-embedding-2"):
         """
-        Initializes the embedder with Google Generative AI.
-        Default model is set to embedding-001 (Gemini).
+        Initializes the embedder with Google GenAI SDK.
+        Default model is set to text-embedding-004.
         """
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            google_api_key=api_key,
-            model=model
-        )
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
 
     def process(self, payload: ProcessingPayload) -> ProcessingPayload:
         if not payload.chunks:
             logger.warning("No chunks found to embed.")
             return payload
             
-        logger.info(f"Generating embeddings for {len(payload.chunks)} chunks (Subject + Body).")
+        logger.info(f"Generating embeddings for {len(payload.chunks)} chunks using {self.model}.")
         
         # Combine subject and body for a richer semantic vector
         texts = [f"Subject: {chunk.subject}\nBody: {chunk.body}" for chunk in payload.chunks]
         
         try:
-            vectors = self.embeddings.embed_documents(texts)
+            # Generate embeddings using the new SDK
+            result = self.client.models.embed_content(
+                model=self.model,
+                contents=texts,
+                config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT")
+            )
             
-            for i, vector in enumerate(vectors):
-                payload.chunks[i].embedding = vector
+            if not result.embeddings:
+                raise ValueError("No embeddings returned from Gemini API")
+
+            # result.embeddings is a list of Embedding objects (each has a .values attribute)
+            for i, emb in enumerate(result.embeddings):
+                payload.chunks[i].embedding = emb.values
                 
-            logger.info("Successfully generated all embeddings.")
+            logger.info("Successfully generated all embeddings using Google GenAI SDK.")
             return payload
 
         except Exception as e:

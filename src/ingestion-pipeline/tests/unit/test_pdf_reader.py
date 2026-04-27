@@ -1,8 +1,6 @@
-import pytest
 import fitz
-import io
 from src.filters.pdf_reader import PDFReader
-from src.domain.entities import SourceDocument, ProcessingPayload, DocumentStatus
+from src.domain.entities import SourceDocument, ProcessingPayload, DocumentStatus, EngineeringMetadata
 
 def create_dummy_pdf(text: str) -> bytes:
     doc = fitz.open()
@@ -24,11 +22,13 @@ def test_pdf_reader_extraction():
         content_type="application/pdf",
         size_bytes=len(pdf_content),
         status=DocumentStatus.PROCESSING,
-        sender="Test Sender",
-        contract_number="123",
-        work_front="Front A",
-        document_date="2024-01-01",
-        process="Extraction"
+        engineering_metadata=EngineeringMetadata(
+            sender="Test Sender",
+            contract_number="123",
+            work_front="Front A",
+            document_date="2024-01-01",
+            process="Extraction"
+        )
     )
     payload = ProcessingPayload(document=doc, content=pdf_content)
     
