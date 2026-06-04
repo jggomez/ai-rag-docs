@@ -8,7 +8,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 
-from src.domain.entities import ProcessingPayload, SourceDocument, EngineeringMetadata
+from src.domain.entities import ProcessingPayload, SourceDocument
 from src.domain.enums import DocumentType
 from src.filters.gemini_extractor import GeminiExtractor
 
@@ -22,13 +22,11 @@ def _make_received_payload(content: bytes = b"fake-image-bytes") -> ProcessingPa
         object_name="func-test-001",
         content_type="application/pdf",
         size_bytes=len(content),
-        engineering_metadata=EngineeringMetadata(
-            sender="External Corp",
-            contract_number="CTR-FUNC",
-            work_front="TESTING",
-            document_date="2026-04-01",
-            process="QA",
-        ),
+        sender="External Corp",
+        contract_number="CTR-FUNC",
+        work_front="TESTING",
+        document_date="2026-04-01",
+        process="QA",
         document_type=DocumentType.RECEIVED,
         source_url="https://drive.google.com/file/d/FAKE_ID/view",
     )

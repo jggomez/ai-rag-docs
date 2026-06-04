@@ -41,30 +41,27 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         else:
             filename = parts[0]
 
-        # Try to extract date from filename (YYYY-MM-DD)
-        date_match = re.search(r"(\d{4}-\d{2}-\d{2})", filename)
-        if date_match:
-            metadata["document_date"] = date_match.group(1)
+        # Try to extract date from filename (supports multiple formats)\n        date_patterns = [\n            (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),     # 2025-03-11\n            (r"(\d{8})", "%Y%m%d"),                    # 20250311\n            (r"(\d{2}-\d{2}-\d{4})", "%d-%m-%Y"),      # 11-03-2025\n        ]\n        for pattern, date_fmt in date_patterns:\n            date_match = re.search(pattern, filename)\n            if date_match:\n                try:\n                    parsed_date = datetime.strptime(date_match.group(1), date_fmt)\n                    metadata["document_date"] = parsed_date.strftime("%Y-%m-%d")\n                    break\n                except ValueError:\n                    continue
 
         # Update document entities ONLY if they are not already set (e.g. by manual ingestion)
         # We consider "PENDING" or "UNKNOWN" as "not set" for the purpose of heuristic extraction
         def should_update(current_val):
             return current_val in [None, "", "PENDING", "UNKNOWN"]
 
-        if should_update(payload.document.engineering_metadata.contract_number):
-            payload.document.engineering_metadata.contract_number = metadata["contract_number"]
+        if should_update(payload.document.contract_number):
+            payload.document.contract_number = metadata["contract_number"]
             
-        if should_update(payload.document.engineering_metadata.sender):
-            payload.document.engineering_metadata.sender = metadata["sender"]
+        if should_update(payload.document.sender):
+            payload.document.sender = metadata["sender"]
             
-        if should_update(payload.document.engineering_metadata.work_front):
-            payload.document.engineering_metadata.work_front = metadata["work_front"]
+        if should_update(payload.document.work_front):
+            payload.document.work_front = metadata["work_front"]
             
-        if should_update(payload.document.engineering_metadata.document_date):
-            payload.document.engineering_metadata.document_date = metadata["document_date"]
+        if should_update(payload.document.document_date):
+            payload.document.document_date = metadata["document_date"]
             
-        if should_update(payload.document.engineering_metadata.process):
-            payload.document.engineering_metadata.process = metadata["process"]
+        if should_update(payload.document.process):
+            payload.document.process = metadata["process"]
         
-        logger.info(f"Metadata after extraction: {payload.document.dict()}")
+        logger.info(f"Metadata after extraction: {payload.document.model_dump()}")
         return payload

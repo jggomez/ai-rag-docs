@@ -1,0 +1,49 @@
+steps:
+  # 1. Build the Docker image using modern buildx/cache features if available
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build Image'
+    env:
+      - 'DOCKER_BUILDKIT=1'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/ingestion-pipeline:latest',
+      '.'
+    ]
+
+  # 2. Push the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Image'
+    args: [
+      'push',
+      'gcr.io/$PROJECT_ID/ingestion-pipeline:latest'
+    ]
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy to Cloud Run'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ingestion-pipeline'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/ingestion-pipeline:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--timeout'
+      - '3600' # Increase timeout for long OCR operations
+      - '--cpu'
+      - '2'
+      - '--memory'
+      - '2Gi'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=devhack-3f0c2,GOOGLE_CLOUD_PROJECT=devhack-3f0c2,GCP_REGION=us-central1,GCS_INGESTION_BUCKET=communications-cys,GCS_INGESTION_PREFIX=COMMUNICATION_RECEIVED/,FIRESTORE_DATABASE=(default),EMBEDDING_MODEL=gemini-embedding-2,OCR_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO,FIRESTORE_DATABASE_RECEIVED=docs-recibidos,FIRESTORE_DATABASE_SENT=docs-enviados,GCS_OUTPUT_BUCKET=questionsanswersproject,GCS_OUTPUT_PREFIX=documentos_correspondencia/doc_enviados_propuestos'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/ingestion-pipeline:latest'
+

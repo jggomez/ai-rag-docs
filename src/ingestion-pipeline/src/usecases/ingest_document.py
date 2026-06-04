@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from src.domain.entities import SourceDocument, ProcessingPayload
 from src.domain.factory import SourceDocumentFactory
 from src.domain.enums import DocumentStatus
@@ -40,17 +40,29 @@ class IngestDocumentCommand:
         
         for index, row in enumerate(rows):
             row_label = row.get("Enviadas", "").strip() or f"row-{index}"
+            
+            # --- START VALIDATION ---
+            rec_url_val = row.get("url Recibidas", "").strip()
+            filt_url_val = row.get("Ubicacion filtradas", "").strip()
+            
+            if "Sin ruta" in rec_url_val or "Sin URL origen" in filt_url_val:
+                logger.info(f"Skipping row {row_label} due to invalid URLs (Sin ruta/Sin URL origen)")
+                continue
+            # --- END VALIDATION ---
+
             try:
                 logger.info(f"Processing CSV row: {row_label}")
-                doc = SourceDocumentFactory.create_from_csv_row(row)
+                docs = SourceDocumentFactory.create_documents_from_csv_row(row)
 
-                # Use the injected builder to get the right pipeline
-                selected_pipeline = self.pipeline_builder.build_pipeline_for_document(
-                    document_type=doc.document_type,
-                    document_repo=self.document_repo,
-                )
-                self._run_pipeline(doc, pipeline=selected_pipeline)
-                processed_count += 1
+                for doc in docs:
+                    logger.info(f"Ingesting document {doc.id} ({doc.document_type.value})")
+                    # Use the injected builder to get the right pipeline
+                    selected_pipeline = self.pipeline_builder.build_pipeline_for_document(
+                        document_type=doc.document_type,
+                        document_repo=self.document_repo,
+                    )
+                    self._run_pipeline(doc, pipeline=selected_pipeline)
+                    processed_count += 1
             except Exception as row_error:
                 logger.error(f"Error processing row {row_label}: {row_error}")
                 failed_count += 1
@@ -62,10 +74,13 @@ class IngestDocumentCommand:
             "total_records": len(rows),
         }
 
-    def execute_csv_row(self, row_data: Dict[str, Any], csv_pipeline: Pipeline) -> SourceDocument:
-        """Orchestrate ingestion from a single CSV row."""
-        doc = SourceDocumentFactory.create_from_csv_row(row_data)
-        return self._run_pipeline(doc, pipeline=csv_pipeline)
+    def execute_csv_row(self, row_data: Dict[str, Any], csv_pipeline: Pipeline) -> List[SourceDocument]:
+        """Orchestrate ingestion from a single CSV row, returning all processed documents."""
+        docs = SourceDocumentFactory.create_documents_from_csv_row(row_data)
+        processed_docs = []
+        for doc in docs:
+            processed_docs.append(self._run_pipeline(doc, pipeline=csv_pipeline))
+        return processed_docs
 
     def _run_pipeline(self, doc: SourceDocument, pipeline: Optional[Pipeline] = None) -> SourceDocument:
         """Common execution and persistence logic."""

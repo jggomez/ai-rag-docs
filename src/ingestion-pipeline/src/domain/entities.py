@@ -3,17 +3,6 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from src.domain.enums import DocumentStatus, DocumentType
 
-class EngineeringMetadata(BaseModel):
-    """
-    Value object representing technical engineering record metadata.
-    """
-    sender: str
-    contract_number: str
-    work_front: str
-    document_date: str
-    process: str
-    response_file_url: Optional[str] = None
-
 class SourceDocument(BaseModel):
     id: str = Field(..., description="Unique ID of the document (usually hash or GCS path)")
     filename: str
@@ -25,10 +14,16 @@ class SourceDocument(BaseModel):
     status: DocumentStatus = DocumentStatus.PENDING
     document_type: DocumentType = DocumentType.SENT
     source_url: Optional[str] = None
-    
-    # Encapsulated engineering metadata
-    engineering_metadata: EngineeringMetadata
-    
+
+    # Flattened engineering metadata (previously EngineeringMetadata)
+    sender: str = "UNKNOWN"
+    contract_number: str = "UNKNOWN"
+    work_front: str = "GENERAL"
+    document_date: str = "UNKNOWN"
+    process: str = "INBOX"
+    response_file_url: Optional[str] = None
+    draft_id: Optional[str] = None
+
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class DocumentChunk(BaseModel):
@@ -45,4 +40,5 @@ class ProcessingPayload(BaseModel):
     document: SourceDocument
     content: Optional[bytes] = None
     chunks: List[DocumentChunk] = Field(default_factory=list)
+
 

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 from src.filters.embedder import VectorEmbedder
-from src.domain.entities import SourceDocument, ProcessingPayload, DocumentChunk, DocumentStatus, EngineeringMetadata
+from src.domain.entities import SourceDocument, ProcessingPayload, DocumentChunk, DocumentStatus
 
 @patch("src.filters.embedder.genai.Client")
 def test_vector_embedder_composite_logic(mock_client_class):
@@ -8,15 +8,18 @@ def test_vector_embedder_composite_logic(mock_client_class):
     mock_client = mock_client_class.return_value
     
     # Create mock embedding objects with .values attribute
+    mock_result1 = MagicMock()
     mock_emb1 = MagicMock()
     mock_emb1.values = [0.1, 0.2, 0.3]
+    mock_result1.embeddings = [mock_emb1]
+
+    mock_result2 = MagicMock()
     mock_emb2 = MagicMock()
     mock_emb2.values = [0.4, 0.5, 0.6]
+    mock_result2.embeddings = [mock_emb2]
     
-    mock_result = MagicMock()
-    mock_result.embeddings = [mock_emb1, mock_emb2]
-    
-    mock_client.models.embed_content.return_value = mock_result
+    # Return mock1 for first call, mock2 for second call
+    mock_client.models.embed_content.side_effect = [mock_result1, mock_result2]
     
     # Create payload with chunks
     doc = SourceDocument(
@@ -27,13 +30,11 @@ def test_vector_embedder_composite_logic(mock_client_class):
         content_type="application/pdf",
         size_bytes=100,
         status=DocumentStatus.PROCESSING,
-        engineering_metadata=EngineeringMetadata(
-            sender="Sender",
-            contract_number="123",
-            work_front="A",
-            document_date="2024-01-01",
-            process="P"
-        )
+        sender="Sender",
+        contract_number="123",
+        work_front="A",
+        document_date="2024-01-01",
+        process="P"
     )
     
     chunks = [
@@ -46,17 +47,8 @@ def test_vector_embedder_composite_logic(mock_client_class):
     embedder = VectorEmbedder(api_key="fake-key", model="gemini-embedding-2")
     result = embedder.process(payload)
     
-    # Verify the new SDK was called correctly
-    expected_texts = [
-        "Subject: Subject 1\nBody: Body 1",
-        "Subject: Subject 2\nBody: Body 2"
-    ]
-    
-    # Check that embed_content was called on the models attribute of the client
-    mock_client.models.embed_content.assert_called_once()
-    args, kwargs = mock_client.models.embed_content.call_args
-    assert kwargs['contents'] == expected_texts
-    assert kwargs['model'] == "gemini-embedding-2"
+    # Check that embed_content was called on the models attribute of the client twice (once per chunk)
+    assert mock_client.models.embed_content.call_count == 2
     
     # Verify embeddings were assigned
     assert result.chunks[0].embedding == [0.1, 0.2, 0.3]

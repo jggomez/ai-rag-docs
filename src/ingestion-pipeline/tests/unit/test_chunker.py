@@ -1,5 +1,5 @@
 from src.filters.chunker import TextChunker
-from src.domain.entities import SourceDocument, ProcessingPayload, EngineeringMetadata
+from src.domain.entities import SourceDocument, ProcessingPayload
 
 def test_text_chunker():
     chunker = TextChunker(chunk_size=50, chunk_overlap=10)
@@ -10,13 +10,11 @@ def test_text_chunker():
         object_name="o",
         content_type="c",
         size_bytes=0,
-        engineering_metadata=EngineeringMetadata(
-            sender="s",
-            contract_number="cn",
-            work_front="wf",
-            document_date="d",
-            process="p"
-        )
+        sender="s",
+        contract_number="cn",
+        work_front="wf",
+        document_date="d",
+        process="p"
     )
     doc.metadata["extracted_text"] = "This is a long text that should be chunked into multiple pieces for testing."
     

@@ -36,7 +36,7 @@ class TestExtractDriveFileId:
 
 def _make_payload(source_url: str = None, doc_type: DocumentType = DocumentType.RECEIVED) -> ProcessingPayload:
     """Helper to build a minimal ProcessingPayload."""
-    from src.domain.entities import EngineeringMetadata
+    
     doc = SourceDocument(
         id="test-doc-001",
         filename="test.pdf",
@@ -44,13 +44,11 @@ def _make_payload(source_url: str = None, doc_type: DocumentType = DocumentType.
         object_name="test-doc-001",
         content_type="application/pdf",
         size_bytes=0,
-        engineering_metadata=EngineeringMetadata(
-            sender="TESTS",
-            contract_number="CTR-001",
-            work_front="TEST",
-            document_date="2026-01-01",
-            process="TEST",
-        ),
+        sender="TESTS",
+        contract_number="CTR-001",
+        work_front="TEST",
+        document_date="2026-01-01",
+        process="TEST",
         document_type=doc_type,
         source_url=source_url,
     )

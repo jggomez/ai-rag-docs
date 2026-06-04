@@ -1,0 +1,38 @@
+steps:
+  # 1. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build Image'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/ui-ai-comunicados:latest',
+      '.'
+    ]
+
+  # 2. Push the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Image'
+    args: [
+      'push',
+      'gcr.io/$PROJECT_ID/ui-ai-comunicados:latest'
+    ]
+
+  # 3. Deploy to Cloud Run with Runtime Environment Variables
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy to Cloud Run'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'ui-ai-comunicados'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/ui-ai-comunicados:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'VITE_INGESTION_API_URL=https://ingestion-pipeline-823002731253.us-central1.run.app,VITE_AGENT_API_URL=https://agent-communications-823002731253.us-central1.run.app'
+
+images:
+  - 'gcr.io/$PROJECT_ID/ui-ai-comunicados:latest'

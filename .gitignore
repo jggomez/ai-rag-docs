@@ -148,3 +148,19 @@ cython_debug/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local MLflow files
+mlflow.db
+mlartifacts/
+
+# Service run process IDs and logs
+.pids/
+
+# Local agent skills and artifacts
+.agents/
+
+# Security & Data
+**/.env*
+**/*.key.json
+**/resources/
+.specify/

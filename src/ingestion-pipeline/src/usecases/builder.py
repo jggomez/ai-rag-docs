@@ -14,7 +14,6 @@ from src.filters.gemini_extractor import GeminiExtractor
 from src.repositories.storage_repo import StorageRepository
 from src.repositories.document_repo import DocumentRepository
 from src.infrastructure.repositories.csv_metadata_repository import CSVMetadataRepository
-from src.filters.csv_metadata import CSVMetadataExtractor
 from src.domain.enums import DocumentType
 
 logger = logging.getLogger(__name__)
@@ -44,9 +43,6 @@ class PipelineBuilder:
         
         pipeline.add_filter(DocumentReader(storage_repo))
         pipeline.add_filter(MetadataExtractor())
-        
-        if csv_metadata_repo:
-            pipeline.add_filter(CSVMetadataExtractor(csv_metadata_repo))
         
         pipeline.add_filter(PDFReader())
         pipeline.add_filter(DocumentCleaner())

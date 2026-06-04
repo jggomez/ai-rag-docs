@@ -21,8 +21,7 @@ class TestApiIngest(unittest.TestCase):
             "processed_records": 2,
             "total_records": 2
         }
-        
-        response = self.client.post("/ingest")
+        response = self.client.post("/api/v1/ingest/batch")
 
         # Assertions
         self.assertEqual(response.status_code, 200)
@@ -39,7 +38,7 @@ class TestApiIngest(unittest.TestCase):
         # Setup mock command to raise error (this covers errors inside the use case)
         mock_command.execute_batch.side_effect = Exception("Batch Processing Error")
 
-        response = self.client.post("/ingest")
+        response = self.client.post("/api/v1/ingest/batch")
 
         self.assertEqual(response.status_code, 500)
         self.assertIn("Batch Processing Error", response.json()["detail"])

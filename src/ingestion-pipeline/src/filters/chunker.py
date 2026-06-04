@@ -26,9 +26,9 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
         
         # Base metadata for all chunks
         base_metadata = {
-            "contract_number": payload.document.engineering_metadata.contract_number,
-            "sender": payload.document.engineering_metadata.sender,
-            "work_front": payload.document.engineering_metadata.work_front
+            "contract_number": payload.document.contract_number,
+            "sender": payload.document.sender,
+            "work_front": payload.document.work_front
         }
         
         for i, chunk_content in enumerate(chunks_text):
@@ -46,7 +46,7 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
                 subject=subject,
                 body=chunk_content,
                 index=i,
-                sent_file=payload.document.engineering_metadata.response_file_url,
+                sent_file=payload.document.response_file_url,
                 metadata={**base_metadata, "chunk_index": i}
             )
             payload.chunks.append(chunk)

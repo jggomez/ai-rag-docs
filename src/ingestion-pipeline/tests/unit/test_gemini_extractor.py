@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 from src.filters.gemini_extractor import GeminiExtractor, ExtractedContent
-from src.domain.entities import SourceDocument, ProcessingPayload, DocumentStatus, EngineeringMetadata, DocumentType
+from src.domain.entities import SourceDocument, ProcessingPayload, DocumentStatus, DocumentType
 
 @patch("src.filters.gemini_extractor.genai.Client")
 def test_gemini_extractor_structured_output(mock_client_class):
@@ -29,13 +29,11 @@ def test_gemini_extractor_structured_output(mock_client_class):
         size_bytes=100,
         status=DocumentStatus.PROCESSING,
         document_type=DocumentType.RECEIVED,
-        engineering_metadata=EngineeringMetadata(
-            sender="Sender",
-            contract_number="123",
-            work_front="A",
-            document_date="2024-01-01",
-            process="P"
-        )
+        sender="Sender",
+        contract_number="123",
+        work_front="A",
+        document_date="2024-01-01",
+        process="P"
     )
     
     payload = ProcessingPayload(document=doc, content=b"fake-pdf-content")

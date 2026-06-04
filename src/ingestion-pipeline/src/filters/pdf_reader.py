@@ -3,6 +3,7 @@ import logging
 import io
 from src.filters.base import Filter
 from src.domain.entities import ProcessingPayload
+from src.domain.enums import DocumentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class PDFReader(Filter[ProcessingPayload, ProcessingPayload]):
             
             # Iterate through pages and extract text
             for page in doc:
-                full_text += page.get_text()
+                full_text += page.get_text() + "\n\n"
             
             doc.close()
             
@@ -32,10 +33,10 @@ class PDFReader(Filter[ProcessingPayload, ProcessingPayload]):
             payload.document.metadata["extracted_text"] = full_text.strip()
             
             logger.info(f"Successfully extracted {len(full_text)} characters from {payload.document.filename}")
+            return payload
             
         except Exception as e:
             logger.error(f"Error extracting text from PDF: {str(e)}")
-            # We don't raise here but the status might need to be tracked
-            # In a robust system, we would mark the document as FAILED
-            
-        return payload
+            payload.document.status = DocumentStatus.FAILED
+            payload.document.metadata["error"] = f"PDF text extraction failed: {str(e)}"
+            raise

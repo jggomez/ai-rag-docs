@@ -2,6 +2,7 @@ import csv
 import logging
 import os
 from typing import Dict, List, Optional
+from src.domain.constants import CSV_COL_ENVIADAS
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,8 @@ class CSVMetadataRepository:
                 for row in reader:
                     self._rows.append(row)
 
-                    # Legacy keyed index by 'Enviadas' column
-                    key = row.get("Enviadas", "").strip()
+                    # Keyed index by 'Enviadas' column using constant
+                    key = row.get(CSV_COL_ENVIADAS, "").strip()
                     if key:
                         self._data[key] = row
             

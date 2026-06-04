@@ -27,7 +27,7 @@ class TestIngestDocumentCommand(unittest.TestCase):
         doc2.document_type = DocumentType.RECEIVED
         doc2.id = "ID2"
         
-        mock_factory.create_from_csv_row.side_effect = [doc1, doc2]
+        mock_factory.create_documents_from_csv_row.side_effect = [[doc1], [doc2]]
         
         # Setup mock builder (already in self.builder)
         mock_pipeline = MagicMock()
@@ -43,7 +43,7 @@ class TestIngestDocumentCommand(unittest.TestCase):
             self.assertEqual(mock_run.call_count, 2)
             
             # Verify factory calls
-            self.assertEqual(mock_factory.create_from_csv_row.call_count, 2)
+            self.assertEqual(mock_factory.create_documents_from_csv_row.call_count, 2)
             
             # Verify builder was called for each type
             self.builder.build_pipeline_for_document.assert_any_call(
@@ -66,10 +66,12 @@ class TestIngestDocumentCommand(unittest.TestCase):
         mock_pipeline.execute.side_effect = mock_execute
         
         # Execute
-        doc = self.command.execute_csv_row(row_data, mock_pipeline)
+        docs = self.command.execute_csv_row(row_data, mock_pipeline)
         
         # Assertions
-        self.assertIsNotNone(doc)
+        self.assertIsNotNone(docs)
+        self.assertEqual(len(docs), 1)
+        doc = docs[0]
         self.assertEqual(doc.filename, "File")
         mock_pipeline.execute.assert_called_once()
 

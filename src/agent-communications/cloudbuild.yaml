@@ -1,0 +1,46 @@
+steps:
+  # 1. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Build Image'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/agent-communications:latest',
+      '.'
+    ]
+
+  # 2. Push the image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'Push Image'
+    args: [
+      'push',
+      'gcr.io/$PROJECT_ID/agent-communications:latest'
+    ]
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'Deploy to Cloud Run'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'agent-communications'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/agent-communications:latest'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--timeout'
+      - '300s'
+      - '--cpu'
+      - '1'
+      - '--memory'
+      - '1Gi'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'PROJECT_ID=devhack-3f0c2,DB_RECEIVED=docs-recibidos,DB_SENT=docs-enviados,EMBEDDING_MODEL=gemini-embedding-2,ALLOW_ORIGINS=*'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/agent-communications:latest'

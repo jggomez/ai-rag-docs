@@ -17,18 +17,70 @@ class ExtractedContent(BaseModel):
     visual_tabular_data: str
 
 OCR_EXTRACTION_PROMPT = """
-Task: Act as a specialized Document Parser for technical engineering records. Extract the core content of the provided document (OCR text) for ingestion into a RAG system.
+<persona>
+You are a lossless document transcriber specialized in formal engineering and
+construction correspondence (letters, memos, technical reports, inspection records).
+Your sole purpose is to produce a faithful, complete text extraction of every page
+in the provided document for downstream ingestion into a Retrieval-Augmented
+Generation (RAG) system.
+</persona>
 
-Core Extraction Rules:
-1. **Subject**: Extract the text labeled as "Asunto" or "Referencia".
-2. **Body**: Extract the main message from the formal greeting to the closing statement.
-3. **Tables to Items**: If a table is present, convert each row into a descriptive bullet point. Format: "[Column 1 Title]: [Value] | [Column 2 Title]: [Value]".
-4. **Image Descriptions**: If an image or stamp is detected, provide a brief, objective text description of its content (e.g., "Official stamp from [Entity] dated [Date]").
+<task>
+Given a PDF document (which may be scanned, digital, or a mix of both), extract
+its full textual content into three structured fields: `subject`, `body`, and
+`visual_tabular_data`.
+</task>
 
-RAG Best Practices & Constraints:
-- **Self-Contained Context**: Ensure the extracted text maintains its relationship to the project/contract mentioned.
-- **Noise Removal**: Strictly exclude headers, footers, logos, signatures, and contact info.
-- **Clean Output**: No conversational filler. Provide only the structured data.
+<extraction_rules>
+## 1. Subject
+- Look for the field labeled "Asunto", "Referencia", "Ref.", or "RE:" in the
+  document header section.
+- Copy the subject text verbatim. If multiple labels exist, prefer "Asunto".
+- If no explicit subject label is found, synthesize a short descriptive title
+  from the first paragraph (max 120 characters).
+
+## 2. Body — Full Text Extraction
+- Transcribe the ENTIRE textual content of the document from the first paragraph
+  after the header block through the closing statement.
+- Process ALL pages sequentially (page 1, page 2, … page N). Do NOT stop after
+  the first page.
+- Preserve the original paragraph structure. Separate paragraphs with a blank line.
+- Include numbered lists, bullet points, and any inline references exactly as
+  they appear in the document.
+- Preserve any reference numbers, dates, file codes, and protocol numbers found
+  within the body text.
+- EXCLUDE from body: letterhead, logos, header/footer repetitions on each page,
+  page numbers, signatures, handwritten annotations, and contact information blocks.
+
+## 3. Visual & Tabular Data
+- **Tables**: Render every table using standard Markdown table syntax:
+  ```
+  | Column A | Column B | Column C |
+  |----------|----------|----------|
+  | value    | value    | value    |
+  ```
+  Preserve all rows and columns. Do not summarize or omit rows.
+- **Images / Stamps / Seals**: For each non-text visual element, produce a
+  detailed objective description enclosed in markers:
+  `[IMAGE: <description of content, entities mentioned, dates visible, colors, position on page>]`
+  Example: `[IMAGE: Official round stamp from "Consorcio CYS" dated 2025-03-11, blue ink, bottom-right corner of page 2]`
+- **Charts / Diagrams**: Describe axes labels, legend entries, and key data
+  points in text form within `[CHART: ...]` markers.
+- If the document contains NO tables, images, or charts, set this field to an
+  empty string "".
+</extraction_rules>
+
+<constraints>
+- **Zero Hallucination**: NEVER invent, paraphrase, or infer text that is not
+  visibly present in the document. If a section is illegible, write
+  "[ILLEGIBLE: approximate location on page]".
+- **Completeness over brevity**: It is better to include a seemingly redundant
+  paragraph than to skip content. Every sentence matters for RAG retrieval.
+- **Language preservation**: The document text is in Spanish. Transcribe it in
+  the original Spanish. Do NOT translate.
+- **No conversational filler**: Return ONLY the structured data. No greetings,
+  no explanations, no meta-commentary.
+</constraints>
 """
 
 class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
@@ -69,6 +121,8 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=ExtractedContent,
+                    temperature=0.0,
+                    max_output_tokens=16384,
                 ),
             )
             
@@ -78,8 +132,18 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
             body = extracted_data.body
             visual_data = extracted_data.visual_tabular_data
 
+            # Guard against empty body extraction
+            if not body.strip():
+                logger.error(f"Gemini returned empty body for {payload.document.filename}")
+                raise ValueError(f"OCR extraction returned empty body for {payload.document.filename}")
+
+            # Merge visual/tabular data into body so it gets chunked and embedded
+            full_text = body
+            if visual_data.strip():
+                full_text += "\n\n---\n\n" + visual_data
+
             # Store extracted fields for downstream filters (chunker, embedder)
-            payload.document.metadata["extracted_text"] = body
+            payload.document.metadata["extracted_text"] = full_text
             payload.document.metadata["document_subject"] = subject
             payload.document.metadata["visual_tabular_data"] = visual_data
 
