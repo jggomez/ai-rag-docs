@@ -9,30 +9,25 @@ Este reporte proporciona una visión integral de los costos operativos, requerim
 
 | Servicio | Categoría | Descripción | Costo Est. (USD) |
 | :--- | :--- | :--- | :--- |
-| **Cloud Run** | Cómputo | Instancias para Ingesta y Agente (Horario Laboral) | **$60.00** |
+| **Cloud Run** | Cómputo | 1 vCPU / 512MB RAM (4h/día actividad real) | **$6.05** |
 | **Google Gemini API** | Inteligencia Artificial | OCR, Embeddings y Generación de Respuestas | **$17.45** |
 | **Cloud Firestore** | Base de Datos | Almacenamiento NoSQL y Búsqueda Vectorial | **$1.70** |
 | **Cloud Storage** | Almacenamiento | Repositorio de documentos originales (Nearline) | **$0.25** |
 | **Networking** | Transferencia | Egress de datos y peticiones HTTP | **$0.16** |
-| **TOTAL ESTIMADO** | | **Inversión Mensual Operativa** | **$79.56 USD** |
+| **TOTAL ESTIMADO** | | **Inversión Mensual Operativa** | **$25.61 USD** |
 
 ---
 
 ## 2. 🏗️ Arquitectura y Componentes del Sistema
 
-### 📥 Pipeline de Ingesta (Procesamiento)
-Servicio encargado de la extracción y transformación de documentos.
-*   **Capacidad:** Procesamiento de ~60 archivos diarios.
-*   **Tecnología:** OCR con Gemini 2.5 Flash + Chunking semántico + Vectorización.
-*   **Performance:** ~16 segundos por documento (media).
-*   **Costo:** $0.00 (dentro de capa gratuita de cómputo).
-
-### 🧠 Agente Conversacional (RAG)
-Interfaz inteligente para consultas sobre la base de conocimiento.
-*   **Capacidad:** ~300 consultas diarias de usuarios.
-*   **Tecnología:** Recuperación de contexto (Firestore Vector Search) + LLM.
-*   **Performance:** ~8 segundos de respuesta latencia final.
-*   **Costo:** $0.00 (dentro de capa gratuita de cómputo).
+### 🧠 Agente Conversacional y Pipeline (RAG)
+Interfaz inteligente para consultas e ingesta de documentos.
+*   **Recursos:** 1 vCPU / 512 MB RAM.
+*   **Patrón de Carga:** 4 horas de ejecución real continua/día (120h/mes).
+*   **Cálculo de Cómputo (Cloud Run):**
+    *   **vCPU-s:** 432,000 consumidos - 180,000 (Capa Free) = 252,000 facturables → **$6.05 USD**.
+    *   **GiB-s:** 216,000 consumidos - 360,000 (Capa Free) = 0 facturables → **$0.00 USD**.
+*   **Tecnología:** OCR con Gemini 2.5 Flash + Firestore Vector Search + LLM.
 
 ### 💾 Almacenamiento de Conocimiento
 *   **Firestore:** Indexación de ~20,000 chunks (proyectado para 1,000 docs base).
