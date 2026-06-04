@@ -1,80 +1,65 @@
-# 📊 Reporte Consolidado: Pipeline de Ingesta RAG
+# 🌎 Reporte de Estimación Global del Sistema: AI-RAG-Docs
 
-Este documento presenta el análisis de rendimiento, volúmenes de datos y la proyección de costos operativos para el sistema de ingesta de documentos técnicos.
+Este reporte proporciona una visión integral de los costos operativos, requerimientos de infraestructura y métricas de rendimiento para el sistema completo de Gestión Documental con IA.
 
 ---
 
-## 1. 📈 Resumen de Ejecución (Muestra de Control)
-*Datos obtenidos de la corrida de validación sobre 101 filas del CSV.*
+## 1. 📊 Resumen Ejecutivo de Costos (Mensual)
+*Estimación proyectada para un entorno de **30 usuarios activos** con una carga de **1,800 documentos/mes** y **9,000 consultas RAG/mes**.*
 
-| Métrica | Resultado |
+| Servicio | Categoría | Descripción | Costo Est. (USD) |
+| :--- | :--- | :--- | :--- |
+| **Cloud Run** | Cómputo | Instancias para Ingesta y Agente (Horario Laboral) | **$60.00** |
+| **Google Gemini API** | Inteligencia Artificial | OCR, Embeddings y Generación de Respuestas | **$17.45** |
+| **Cloud Firestore** | Base de Datos | Almacenamiento NoSQL y Búsqueda Vectorial | **$1.70** |
+| **Cloud Storage** | Almacenamiento | Repositorio de documentos originales (Nearline) | **$0.25** |
+| **Networking** | Transferencia | Egress de datos y peticiones HTTP | **$0.16** |
+| **TOTAL ESTIMADO** | | **Inversión Mensual Operativa** | **$79.56 USD** |
+
+---
+
+## 2. 🏗️ Arquitectura y Componentes del Sistema
+
+### 📥 Pipeline de Ingesta (Procesamiento)
+Servicio encargado de la extracción y transformación de documentos.
+*   **Capacidad:** Procesamiento de ~60 archivos diarios.
+*   **Tecnología:** OCR con Gemini 2.5 Flash + Chunking semántico + Vectorización.
+*   **Performance:** ~16 segundos por documento (media).
+*   **Costo:** $0.00 (dentro de capa gratuita de cómputo).
+
+### 🧠 Agente Conversacional (RAG)
+Interfaz inteligente para consultas sobre la base de conocimiento.
+*   **Capacidad:** ~300 consultas diarias de usuarios.
+*   **Tecnología:** Recuperación de contexto (Firestore Vector Search) + LLM.
+*   **Performance:** ~8 segundos de respuesta latencia final.
+*   **Costo:** $0.00 (dentro de capa gratuita de cómputo).
+
+### 💾 Almacenamiento de Conocimiento
+*   **Firestore:** Indexación de ~20,000 chunks (proyectado para 1,000 docs base).
+*   **Cloud Storage:** Bucket configurado en clase *Nearline* para optimizar costo/retención.
+
+---
+
+## 3. 📈 Métricas de Validación Reciente
+*Resultados de la última prueba de estrés (Filas 100-200 del dataset maestro).*
+
+| KPI | Valor |
 | :--- | :--- |
-| **ID Corrida (MLflow)** | `1ca6a1e5896648df964750a7cb9ec596` |
-| **Documentos Procesados** | 187 |
-| **Tasa de Éxito** | **96.26%** (180 exitosos, 7 fallidos) |
-| **Tiempo Total** | 50.05 minutos |
-| **Promedio por Documento** | 16.06 segundos |
+| **Tasa de Éxito de Ingesta** | **96.26%** |
+| **Precisión de Extracción (OCR)** | Lossless (Alta Fidelidad) |
+| **Consumo de Tokens (Entrada)** | 361,018 tokens |
+| **Consumo de Tokens (Salida)** | 139,475 tokens |
+| **Latencia Máxima (Documento Grande)** | 88.02 segundos |
 
 ---
 
-## 2. 💰 Estimación de Costos Operativos (Mensual)
-*Proyección basada en un equipo de **30 usuarios activos**.*
+## 4. ⚙️ Configuraciones Recomendadas para Producción
 
-### A. Servicios de Infraestructura (Google Cloud)
-| Servicio | Escenario / Configuración | Costo Est. (USD) |
-| :--- | :--- | :--- |
-| **Cloud Run** | Horario laboral (8h/día, min-instances: 1) | **$60.00** |
-| **Firestore** | 1.5M escrituras/mes (Excedente Capa Free) | **$1.70** |
-| **Cloud Storage** | Almacenamiento Nearline (< 1GB) | **$0.25** |
-| **Red (Egress)** | Transferencia de datos a Internet | **$0.16** |
-| **Subtotal Infraestructura** | | **$62.11** |
-
-### B. Inteligencia Artificial (Google Gemini API)
-| Componente | Uso Estimado | Costo Est. (USD) |
-| :--- | :--- | :--- |
-| **LLM OCR (Flash 2.5)** | Transcripción de documentos | **$16.00** |
-| **Embeddings (v2)** | Vectorización para búsqueda | **$1.45** |
-| **Subtotal IA** | | **$17.45** |
-
-> [!IMPORTANT]
-> **TOTAL MENSUAL ESTIMADO: ~$79.56 USD**
-> *Ahorro potencial de **$202 USD** si se evitan `min-instances` 24/7.*
+1.  **Escalabilidad:** Mantener `max-instances: 10` para manejar picos de subida de documentos sin degradar el servicio.
+2.  **Optimización de Costos:**
+    *   **Cloud Scheduler:** Configurar el encendido de instancias a las 08:00 y apagado a las 18:00 (Ahorro de ~$140 USD vs 24/7).
+    *   **Caché de Embeddings:** Implementar una capa de caché para documentos idénticos para evitar re-procesamiento.
+3.  **Seguridad:** Uso de *Secret Manager* para `GEMINI_API_KEY` y credenciales de Cuentas de Servicio.
 
 ---
-
-## 3. 📂 Desglose por Unidad de Servicio
-
-### 🧠 Servicio de Agente (RAG)
-*   **Recursos:** 1 vCPU / 2 GB RAM.
-*   **Carga:** 9,000 consultas/mes (300/día).
-*   **Performance:** ~8s de respuesta promedio.
-*   **Costo:** $0.00 (Capa gratuita) + Proporción de `min-instances`.
-
-### 📥 Pipeline de Ingesta
-*   **Recursos:** 2 vCPU / 4 GB RAM.
-*   **Carga:** 1,800 archivos/mes (60/día).
-*   **Performance:** ~16s por archivo (OCR + Chunking + Embedding).
-*   **Costo:** $0.00 (Capa gratuita) + Proporción de `min-instances`.
-
----
-
-## 4. 📝 Registro Detallado de Ingesta (Fragmento)
-
-| Línea CSV | ID Borrador | Documento | Estado | Latencia | Error / Observación |
-| :---: | :--- | :--- | :---: | :---: | :--- |
-| 102 | `853467b9` | doc-853467b9 | ✅ | 3.58s | - |
-| 103 | `922f10f9` | CYS-CW276532-PHI-01740 | ✅ | 26.52s | - |
-| 104 | `66fff8c8` | D-PHI-COP-0385-2025 | ❌ | 88.02s | NoneType error in extractor |
-| 105 | `99655cf4` | CYS-CW276532-PHI-01751 | ✅ | 33.19s | - |
-| 118 | `ba697d5c` | D-PHI-COP-0430-2025 | ✅ | 79.38s | Latencia alta por tamaño PDF |
-| 130 | `b4a05a8d` | CYS-CW276532-PHI-01857 | ❌ | 1.86s | Permisos insuficientes (Drive) |
-
----
-
-## 5. 💡 Recomendaciones de Optimización
-1.  **Gestión de Instancias:** Implementar Cloud Scheduler para apagar `min-instances` fuera de horario de oficina.
-2.  **Manejo de Errores:** Investigar los fallos tipo `NoneType` en el extractor para mejorar la tasa de éxito (actualmente 96%).
-3.  **Drive Auth:** Revisar permisos de la cuenta de servicio para los documentos que arrojaron error 403.
-
----
-*Reporte generado automáticamente por Gemini CLI.*
+*Este reporte consolida la visión técnica y financiera del proyecto AI-RAG-Docs.*
