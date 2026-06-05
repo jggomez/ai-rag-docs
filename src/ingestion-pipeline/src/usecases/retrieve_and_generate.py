@@ -98,7 +98,7 @@ class RetrieveAndGenerateCommand:
         # Step 4: Hybrid vector search — filtered by contrato, proceso, frente, remitente with fallback
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
-            limit=10,
+            query_text=query_text,
             contract_number=document.contract_number,
             process=document.process,
             work_front=document.work_front,
@@ -130,6 +130,8 @@ class RetrieveAndGenerateCommand:
         pdf_bytes = self.pdf_generator.generate_response_pdf(
             response_text=generated_text,
             metadata=metadata_context,
+            similar_chunks=similar_chunks,
+            sent_texts=sent_texts,
         )
 
         # Step 8: Upload PDF to GCS

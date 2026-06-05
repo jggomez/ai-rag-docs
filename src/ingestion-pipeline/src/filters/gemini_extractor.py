@@ -80,6 +80,9 @@ its full textual content into three structured fields: `subject`, `body`, and
   the original Spanish. Do NOT translate.
 - **No conversational filler**: Return ONLY the structured data. No greetings,
   no explanations, no meta-commentary.
+- **Safety & Recitation Avoidance**: To avoid triggering API safety filters and recitation blocks on verbatim text:
+  * Do NOT transcribe long standard boilerplate clauses, legal disclaimers, or generic privacy notices verbatim. Instead, replace them with a brief bracketed summary, e.g., `[Generic legal disclaimer summarized]`.
+  * Focus 100% of your transcription fidelity on the main correspondence body, technical reports, dates, reference codes, specific instructions, names, and tables.
 </constraints>
 """
 
@@ -122,24 +125,54 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
                     response_mime_type="application/json",
                     response_schema=ExtractedContent,
                     temperature=0.0,
-                    max_output_tokens=16384,
+                    max_output_tokens=65536,
                 ),
             )
             
             extracted_data: ExtractedContent = response.parsed
             
-            subject = extracted_data.subject
-            body = extracted_data.body
-            visual_data = extracted_data.visual_tabular_data
+            # If parsed is None or missing expected fields, fallback to manual validation
+            if (extracted_data is None or 
+                not hasattr(extracted_data, "subject") or 
+                not hasattr(extracted_data, "body") or 
+                not hasattr(extracted_data, "visual_tabular_data")):
+                
+                logger.warning("response.parsed is None or incomplete. Attempting manual parsing from response.text.")
+                
+                # Check for empty/blocked response
+                text = response.text
+                if not text:
+                    finish_reason = "UNKNOWN"
+                    if response.candidates and len(response.candidates) > 0:
+                        finish_reason = response.candidates[0].finish_reason or "UNKNOWN"
+                    raise ValueError(f"Gemini returned an empty/blocked response (finish reason: {finish_reason})")
+                
+                text = text.strip()
+                if text.startswith("```"):
+                    lines = text.splitlines()
+                    if len(lines) >= 3:
+                        text = "\n".join(lines[1:-1])
+                try:
+                    extracted_data = ExtractedContent.model_validate_json(text)
+                except Exception as json_err:
+                    finish_reason = "UNKNOWN"
+                    if response.candidates and len(response.candidates) > 0:
+                        finish_reason = response.candidates[0].finish_reason or "UNKNOWN"
+                    logger.error(f"Failed to parse Gemini response as JSON. Finish reason: {finish_reason}. Text sample: {text[:200]}")
+                    raise ValueError(f"Failed to parse Gemini response as JSON (finish reason: {finish_reason}): {json_err}")
+            
+            subject = getattr(extracted_data, "subject", "") or ""
+            body = getattr(extracted_data, "body", "") or ""
+            visual_data = getattr(extracted_data, "visual_tabular_data", "") or ""
 
             # Guard against empty body extraction
-            if not body.strip():
-                logger.error(f"Gemini returned empty body for {payload.document.filename}")
+            if not isinstance(body, str) or not body.strip():
+                logger.error(f"Gemini returned empty or invalid body for {payload.document.filename}")
                 raise ValueError(f"OCR extraction returned empty body for {payload.document.filename}")
 
             # Merge visual/tabular data into body so it gets chunked and embedded
             full_text = body
-            if visual_data.strip():
+            if isinstance(visual_data, str) and visual_data.strip():
                 full_text += "\n\n---\n\n" + visual_data
 
             # Store extracted fields for downstream filters (chunker, embedder)

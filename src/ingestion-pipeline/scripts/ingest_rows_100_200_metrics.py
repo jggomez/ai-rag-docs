@@ -187,7 +187,7 @@ def run_metrics_ingest():
     mlflow.langchain.autolog()
     mlflow.gemini.autolog()
 
-    csv_path = "/Users/jggomez/Documents/jggomez/ai-doc-communications/ai-rag-docs/src/ingestion-pipeline/resources/Comunicaciones.csv"
+    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "resources", "Comunicaciones.csv")
     if not os.path.exists(csv_path):
         logger.error(f"CSV file not found at: {csv_path}")
         return
@@ -373,7 +373,7 @@ def run_metrics_ingest():
         print("="*80 + "\n")
 
 def write_markdown_report(start_idx, end_idx, total_duration, total_docs_count, success_docs_count, failed_docs_count, success_rate, processed_rows, tracker, run_id):
-    report_dir = Path("/Users/jggomez/Documents/jggomez/ai-doc-communications/ai-rag-docs/artifacts")
+    report_dir = Path(__file__).resolve().parent.parent.parent.parent / "artifacts"
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / "ingest_metrics_report.md"
     

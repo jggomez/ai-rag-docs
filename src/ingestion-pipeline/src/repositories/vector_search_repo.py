@@ -1,16 +1,37 @@
 import logging
 from typing import List, Dict, Optional
+
 from google.cloud import firestore
 from google.cloud.firestore_v1.vector import Vector
 from google.cloud.firestore_v1.base_vector_query import DistanceMeasure
+from flashrank import Ranker, RerankRequest
 
 logger = logging.getLogger(__name__)
+
+# Singleton: loaded once at startup — avoids re-loading the ONNX model per call.
+# ms-marco-MiniLM-L-12-v2 is lightweight (~60 MB) and runs on CPU in ~50 ms.
+_reranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir="/tmp/flashrank_cache")
+
+# Number of candidates fetched from Firestore before reranking.
+_VECTOR_SEARCH_CANDIDATE_LIMIT = 20
+
+# Final top-k returned to the caller after reranking.
+_RERANK_TOP_K = 7
 
 
 class FirestoreVectorSearchRepository:
     """
     Repository dedicated to vector similarity search and cross-document linking.
-    Uses Firestore's native find_nearest for KNN vector search with COSINE distance.
+
+    Retrieval pipeline:
+      1. Hybrid vector search against Firestore (cosine KNN) fetching up to
+         _VECTOR_SEARCH_CANDIDATE_LIMIT candidates.
+      2. Cross-encoder reranking with FlashRank (ms-marco-MiniLM-L-12-v2) to
+         reorder candidates by semantic relevance to the original query text.
+      3. Return the top _RERANK_TOP_K reranked chunks.
+
+    If query_text is not provided, the reranking step is skipped and the raw
+    Firestore ordering is preserved (backwards-compatible behaviour).
     """
 
     def __init__(
@@ -28,14 +49,16 @@ class FirestoreVectorSearchRepository:
     def find_similar_chunks(
         self,
         query_vector: List[float],
-        limit: int = 10,
+        query_text: Optional[str] = None,
+        limit: int = _VECTOR_SEARCH_CANDIDATE_LIMIT,
         contract_number: Optional[str] = None,
         process: Optional[str] = None,
         work_front: Optional[str] = None,
         sender: Optional[str] = None,
     ) -> List[dict]:
         """
-        Hybrid search: vector similarity + metadata filtering with progressive fallback.
+        Hybrid search: vector similarity + metadata filtering with progressive fallback,
+        followed by cross-encoder reranking when query_text is supplied.
 
         Filter priority (most restrictive first):
           1. contrato + proceso + frente + remitente + vector
@@ -44,21 +67,67 @@ class FirestoreVectorSearchRepository:
           4. contrato + vector
           5. vector only (pure semantic search)
 
-        If a level returns no results, the next less restrictive level is tried.
+        If a level returns no results the next less restrictive level is tried.
+        After retrieval, FlashRank reranks the candidates and returns the top
+        _RERANK_TOP_K chunks ordered by cross-encoder score.
         """
         filter_stages = self._build_filter_stages(contract_number, process, work_front, sender)
 
+        candidate_chunks: List[dict] = []
         for stage_name, filters in filter_stages:
-            results = self._execute_vector_search(query_vector, filters, limit)
-            if results:
+            candidate_chunks = self._execute_vector_search(query_vector, filters, limit)
+            if candidate_chunks:
                 logger.info(
-                    f"Hybrid search hit at stage '{stage_name}': {len(results)} chunks found."
+                    f"Hybrid search hit at stage '{stage_name}': "
+                    f"{len(candidate_chunks)} candidates found."
                 )
-                return results
+                break
             logger.info(f"Stage '{stage_name}' returned 0 results, falling back...")
 
-        logger.warning("All search stages exhausted. No similar chunks found.")
-        return []
+        if not candidate_chunks:
+            logger.warning("All search stages exhausted. No similar chunks found.")
+            return []
+
+        if query_text:
+            return self._rerank_chunks(query_text, candidate_chunks)
+
+        # No query_text supplied — return raw Firestore ordering (backwards-compatible).
+        return candidate_chunks
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _rerank_chunks(self, query_text: str, candidates: List[dict]) -> List[dict]:
+        """
+        Reranks candidate chunks using a cross-encoder (FlashRank) and returns
+        the top _RERANK_TOP_K results ordered by descending relevance score.
+
+        Each candidate must have a 'texto' field used as the passage text.
+        The original chunk dict is preserved and a 'rerank_score' key is added.
+        """
+        passages = [
+            {"id": idx, "text": chunk.get("texto", "")}
+            for idx, chunk in enumerate(candidates)
+        ]
+
+        rerank_request = RerankRequest(query=query_text, passages=passages)
+        reranked_results = _reranker.rerank(rerank_request)
+
+        # reranked_results is a list of dicts with keys: id, score, text
+        top_results = reranked_results[:_RERANK_TOP_K]
+
+        reranked_chunks: List[dict] = []
+        for result in top_results:
+            original_chunk = candidates[result["id"]]
+            original_chunk["rerank_score"] = result["score"]
+            reranked_chunks.append(original_chunk)
+
+        logger.info(
+            f"Reranking complete: {len(candidates)} candidates → top {len(reranked_chunks)} "
+            f"returned. Top score: {top_results[0]['score']:.4f}"
+        )
+        return reranked_chunks
 
     def _build_filter_stages(
         self,
@@ -142,13 +211,13 @@ class FirestoreVectorSearchRepository:
 
     def resolve_sent_documents(
         self, chunk_results: List[dict]
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Dict[str, str]]:
         """
         For each similar chunk, extracts the draft_id (id_borrador) field
         and queries the sent documents collection to find the corresponding
-        sent document text (texto_extraido).
+        sent document text (texto_extraido) and filename (nombre_archivo).
 
-        Returns a dict mapping {draft_id: texto_extraido}.
+        Returns a dict mapping {draft_id: {"texto": texto_extraido, "filename": nombre_archivo}}.
         """
         # Collect unique draft IDs from chunk results
         draft_ids = set()
@@ -163,20 +232,23 @@ class FirestoreVectorSearchRepository:
 
         logger.info(f"Resolving {len(draft_ids)} unique draft IDs to sent documents.")
 
-        sent_texts: Dict[str, str] = {}
+        sent_metadata: Dict[str, Dict[str, str]] = {}
         for draft_id in draft_ids:
-            # Query sent documents where id_borrador matches the draft_id
             query = self.sent_docs_collection.where("id_borrador", "==", draft_id).limit(1)
             results = query.get()
 
             for doc_snapshot in results:
                 doc_data = doc_snapshot.to_dict()
                 extracted_text = doc_data.get("texto_extraido", "")
+                filename = doc_data.get("nombre_archivo", "N/A")
                 if extracted_text:
-                    sent_texts[draft_id] = extracted_text
-                    logger.info(f"Resolved sent text for draft_id={draft_id} ({len(extracted_text)} chars).")
+                    sent_metadata[draft_id] = {
+                        "texto": extracted_text,
+                        "filename": filename
+                    }
+                    logger.info(f"Resolved sent text and filename for draft_id={draft_id} ({len(extracted_text)} chars, name={filename}).")
                 else:
                     logger.warning(f"Sent document for draft_id={draft_id} has no texto_extraido.")
 
-        logger.info(f"Resolved {len(sent_texts)} sent document texts out of {len(draft_ids)} draft IDs.")
-        return sent_texts
+        logger.info(f"Resolved {len(sent_metadata)} sent document records out of {len(draft_ids)} draft IDs.")
+        return sent_metadata

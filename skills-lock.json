@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-evaluation": {
+      "source": "mlflow/skills",
+      "sourceType": "github",
+      "skillPath": "agent-evaluation/SKILL.md",
+      "computedHash": "0ac67c153099baadc1103ed61e2da742596b9287821349ae7f140248e5ed4073"
+    },
+    "analyzing-mlflow-session": {
+      "source": "mlflow/skills",
+      "sourceType": "github",
+      "skillPath": "analyze-mlflow-chat-session/SKILL.md",
+      "computedHash": "6e53821cfce72e74d68615012e2088b29f3d415b5ba36de6e4299e598f85a220"
+    },
+    "analyzing-mlflow-trace": {
+      "source": "mlflow/skills",
+      "sourceType": "github",
+      "skillPath": "analyze-mlflow-trace/SKILL.md",
+      "computedHash": "a814876da3e16e91aac7c593ff4f15336d24df324632195476f209e0131a9cf9"
+    },
+    "caveman": {
+      "source": "juliusbrussee/caveman",
+      "sourceType": "github",
+      "skillPath": "skills/caveman/SKILL.md",
+      "computedHash": "dfbf85749fd474feeb0bbe60c779795ecd5dbec0083299b56e68916bc3ddd8c9"
+    },
+    "cloud-run-basics": {
+      "source": "google/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cloud/cloud-run-basics/SKILL.md",
+      "computedHash": "d04d21b683f404fcd6c3b798095c0399d61e5e9d84cb913da46a09e0aa90c708"
+    },
+    "gemini-api": {
+      "source": "google/skills",
+      "sourceType": "github",
+      "skillPath": "skills/cloud/gemini-api/SKILL.md",
+      "computedHash": "c8cd9e6bd860dcfeb65b6d8a3efaab8b6d93ea7ad666d24d1f4f04c7e34e116b"
+    },
+    "mlflow-agent": {
+      "source": "mlflow/skills",
+      "sourceType": "github",
+      "skillPath": "mlflow-agent/SKILL.md",
+      "computedHash": "e1bc8147d7b557beb4a24699cd7d51b60f3cf9a8667b0f8fb3f8dfe221355e9e"
+    },
+    "mlflow-onboarding": {
+      "source": "mlflow/skills",
+      "sourceType": "github",
+      "skillPath": "mlflow-onboarding/SKILL.md",
+      "computedHash": "f38bc94c8ae4dbb246bc0ee55c0994e21c6ff9e4b245e4b6d3e8d04674bd8cde"
+    }
+  }
+}

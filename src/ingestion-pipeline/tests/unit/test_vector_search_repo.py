@@ -246,8 +246,9 @@ class TestResolveSentDocuments:
         result = repo.resolve_sent_documents(chunks)
 
         assert len(result) == 2
-        assert result["draft_A"] == "Sent text A"
-        assert result["draft_B"] == "Sent text B"
+        assert result["draft_A"]["texto"] == "Sent text A"
+        assert result["draft_B"]["texto"] == "Sent text B"
+        assert result["draft_A"]["filename"] == "N/A"
 
     def test_empty_chunks_returns_empty(self, repo):
         result = repo.resolve_sent_documents([])

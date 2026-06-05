@@ -4,7 +4,8 @@ import urllib.request
 import urllib.error
 import os
 
-CSV_PATH = "/Users/jggomez/Documents/jggomez/ai-doc-communications/ai-rag-docs/src/ingestion-pipeline/resources/Comunicaciones.csv"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH = os.path.join(SCRIPT_DIR, "..", "resources", "Comunicaciones.csv")
 API_URL = "http://localhost:8080/api/v1/ingest"
 
 def post_ingest(payload):

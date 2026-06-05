@@ -141,12 +141,14 @@ class ResponseGenerator:
             lines.append(f"### Similar Communication #{i} (Draft: {draft_id}):\n{text}\n")
         return "\n".join(lines)
 
-    def _format_sent_texts(self, sent_texts: Dict[str, str]) -> str:
+    def _format_sent_texts(self, sent_texts: Dict[str, Dict[str, str]]) -> str:
         """Formats sent document texts into a reference block."""
         if not sent_texts:
             return "No previous sent response letters were found for reference."
 
         lines = []
-        for i, (draft_id, text) in enumerate(sent_texts.items(), 1):
-            lines.append(f"### Sent Letter #{i} (Draft: {draft_id}):\n{text}\n")
+        for i, (draft_id, data) in enumerate(sent_texts.items(), 1):
+            text = data.get("texto", "")
+            filename = data.get("filename", "N/A")
+            lines.append(f"### Sent Letter #{i} (Draft: {draft_id}, Filename: {filename}):\n{text}\n")
         return "\n".join(lines)

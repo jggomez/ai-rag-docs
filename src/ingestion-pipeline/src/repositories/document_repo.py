@@ -89,6 +89,7 @@ class FirestoreDocumentRepository(DocumentRepository):
                 "fecha_documento": spanish_parent.get("fecha_documento"),
                 "proceso": spanish_parent.get("proceso"),
                 "id_borrador": spanish_parent.get("id_borrador"),
+                "nombre_archivo": spanish_parent.get("nombre_archivo"),
             }
             url_origen = spanish_parent.get("url_origen")
             url_recibido = spanish_parent.get("url_recibido")
@@ -117,6 +118,7 @@ class FirestoreDocumentRepository(DocumentRepository):
             spanish_chunk = {
                 "id": chunk.id,
                 "id_documento": chunk.document_id,
+                "asunto": chunk.subject,
                 "texto": f"{chunk.subject}\n{chunk.body}",  # mix of subject and body
                 "url_origen": url_origen,
                 "url_recibido": url_recibido,

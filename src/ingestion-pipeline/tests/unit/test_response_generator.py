@@ -34,7 +34,7 @@ class TestResponseGenerator:
             received_subject="Informe de avance",
             received_body="Se presenta el informe mensual...",
             similar_chunks=[{"texto": "Chunk similar", "id_borrador": "123"}],
-            sent_texts={"123": "Acusamos recibo de su comunicación..."},
+            sent_texts={"123": {"texto": "Acusamos recibo de su comunicación...", "filename": "SENT-001"}},
             metadata={"contract_number": "CW-276532", "sender": "CYS"},
         )
         assert len(result) > 0
@@ -100,7 +100,11 @@ class TestResponseGenerator:
 
     def test_format_sent_texts_with_content(self, generator):
         gen, _ = generator
-        texts = {"draft_1": "Carta enviada texto", "draft_2": "Otra carta"}
+        texts = {
+            "draft_1": {"texto": "Carta enviada texto", "filename": "SENT-01"},
+            "draft_2": {"texto": "Otra carta", "filename": "SENT-02"}
+        }
         result = gen._format_sent_texts(texts)
         assert "Carta enviada texto" in result
         assert "Otra carta" in result
+        assert "SENT-01" in result

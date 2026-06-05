@@ -69,7 +69,7 @@ class TestRetrieveAndGenerateCommand:
             {"texto": "Similar chunk", "id_borrador": "76857089"}
         ]
         vector_repo.resolve_sent_documents.return_value = {
-            "76857089": "Sent doc text"
+            "76857089": {"texto": "Sent doc text", "filename": "SENT-001"}
         }
 
         # Mock response generator
