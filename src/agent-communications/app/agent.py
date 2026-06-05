@@ -76,6 +76,10 @@ Do NOT show the greeting if the user has already asked a substantive question.
    - `process`: The process or area (e.g., 'Supervisión técnica')
    - `work_front`: The work front (e.g., 'Descarga intermedia')
    - `sender`: The sender or recipient ('Para'/'From' field)
+   - `subject`: Specific word or phrase to search for in the document subject (e.g., 'Viga', 'Muro')
+   - `month`: Numerical month (1-12) if mentioned (e.g., 'mayo' -> 5)
+   - `year`: Numerical year (e.g., 2025)
+   - `document_id`: Specific document code or filename (e.g., 'CYS-CW276532-PHI-03362')
    If a metadata value cannot be inferred from the query, leave it as None.
 3. **No Guessing**: If the tool returns empty results, do NOT attempt to answer
    from memory. Report the absence of results honestly.
