@@ -61,15 +61,75 @@ cp .env.example .env
 El flujo de ingesta se desacopla en filtros aislados que comparten estado mediante un `ProcessingPayload`. El pipeline enruta y bifurca la estrategia según el tipo de documento:
 
 ```mermaid
-graph TD
-    A[DriveDownloader] --> B{Bifurcador de Pipeline}
-    B -- SENT --> C[PDFReader]
-    C --> D[DocumentCleaner]
-    B -- RECEIVED --> E[GeminiExtractor]
-    D --> F[TextChunker]
-    E -- OCR Estructurado LLM --> F
-    F --> G[VectorEmbedder]
-    G --> H[VectorSaver]
+flowchart TD
+    %% Entradas
+    subgraph Entrada ["Interfaces de Entrada / API"]
+        API_Single["POST /api/v1/ingest<br>(Ingesta Individual)"]
+        API_Batch["POST /api/v1/ingest/batch<br>(Ingesta Masiva CSV)"]
+        Eventarc["GCS Eventarc Trigger<br>(Cloud Storage Events)"]
+    end
+
+    %% Componente Central / Casos de Uso
+    subgraph Orquestacion ["Capa de Aplicación y Casos de Uso"]
+        Cmd["IngestDocumentCommand<br>(Orquestador de Ingesta)"]
+        Builder["PipelineBuilder<br>(Constructor de Tuberías)"]
+    end
+
+    %% Tubería de Procesamiento
+    subgraph Pipeline ["Pipeline de Procesamiento (Pipe & Filter)"]
+        Downloader["1. DriveDownloader<br>(Descarga GCS / Drive API)"]
+        
+        %% Ramificaciones
+        Bifurcador{"¿Tipo de Documento?"}
+        
+        subgraph SentBranch ["Rama de Enviados (SENT)"]
+            Reader["2a. PDFReader<br>(Extracción de Texto PDF)"]
+            Cleaner["3a. DocumentCleaner<br>(Limpieza y OCR Fix)"]
+        end
+        
+        subgraph RecBranch ["Rama de Recibidos (RECEIVED)"]
+            Extractor["2b. GeminiExtractor<br>(Gemini 2.5 LLM OCR)"]
+        end
+        
+        %% Etapas Comunes
+        Chunker["4. TextChunker<br>(Segmentación Semántica)"]
+        Embedder["5. VectorEmbedder<br>(Vectores de Embedding Gemini)"]
+        Saver["6. VectorSaver<br>(Preparación de Modelos)"]
+    end
+
+    %% Persistencia
+    subgraph DB ["Capa de Persistencia (Firestore)"]
+        RoutingRepo["RoutingFirestoreDocumentRepository"]
+        DB_Rec["Firestore docs-recibidos<br>(Colecciones: documentos, documentos_chunks)"]
+        DB_Sen["Firestore docs-enviados<br>(Colecciones: documentos, documentos_chunks)"]
+    end
+
+    %% Flujos de datos y control
+    API_Single --> Cmd
+    API_Batch --> Cmd
+    Eventarc --> Cmd
+    Cmd --> Builder
+    Builder --> Pipeline
+    
+    Downloader --> Bifurcador
+    Bifurcador -->|Enviado| Reader
+    Reader --> Cleaner
+    Cleaner --> Chunker
+    
+    Bifurcador -->|Recibido| Extractor
+    Extractor --> Chunker
+    
+    Chunker --> Embedder
+    Embedder --> Saver
+    Saver --> RoutingRepo
+    
+    RoutingRepo -->|Filtro ID / Tipo| DB_Rec
+    RoutingRepo -->|Filtro ID / Tipo| DB_Sen
+
+    %% Estilos Visuales
+    style Bifurcador fill:#f9f,stroke:#333,stroke-width:2px
+    style DB_Rec fill:#bbf,stroke:#333,stroke-width:1px
+    style DB_Sen fill:#bbf,stroke:#333,stroke-width:1px
 ```
 
 ---
