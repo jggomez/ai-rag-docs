@@ -1,11 +1,32 @@
 import unittest
 import logging
+import os
+from google.cloud import firestore
+
+# Skip if Firestore is not reachable or dummy project active
+def _firestore_available():
+    try:
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
+        if project_id == "dummy-project-id":
+            return False
+        client = firestore.Client(database="docs-recibidos", project=project_id)
+        list(client.collection("documentos_chunks").limit(1).stream())
+        return True
+    except Exception:
+        return False
+
+skip_no_firestore = unittest.skipIf(
+    not _firestore_available(),
+    "Firestore docs-recibidos not reachable or dummy project active"
+)
+
 from fastapi.testclient import TestClient
 from src.main import app, document_repo
 from src.config import Settings
 
 logger = logging.getLogger(__name__)
 
+@skip_no_firestore
 class TestRESTAPIIntegration(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)

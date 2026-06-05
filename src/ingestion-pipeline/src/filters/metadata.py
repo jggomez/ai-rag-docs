@@ -41,7 +41,21 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         else:
             filename = parts[0]
 
-        # Try to extract date from filename (supports multiple formats)\n        date_patterns = [\n            (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),     # 2025-03-11\n            (r"(\d{8})", "%Y%m%d"),                    # 20250311\n            (r"(\d{2}-\d{2}-\d{4})", "%d-%m-%Y"),      # 11-03-2025\n        ]\n        for pattern, date_fmt in date_patterns:\n            date_match = re.search(pattern, filename)\n            if date_match:\n                try:\n                    parsed_date = datetime.strptime(date_match.group(1), date_fmt)\n                    metadata["document_date"] = parsed_date.strftime("%Y-%m-%d")\n                    break\n                except ValueError:\n                    continue
+        # Try to extract date from filename (supports multiple formats)
+        date_patterns = [
+            (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),     # 2025-03-11
+            (r"(\d{8})", "%Y%m%d"),                    # 20250311
+            (r"(\d{2}-\d{2}-\d{4})", "%d-%m-%Y"),      # 11-03-2025
+        ]
+        for pattern, date_fmt in date_patterns:
+            date_match = re.search(pattern, filename)
+            if date_match:
+                try:
+                    parsed_date = datetime.strptime(date_match.group(1), date_fmt)
+                    metadata["document_date"] = parsed_date.strftime("%Y-%m-%d")
+                    break
+                except ValueError:
+                    continue
 
         # Update document entities ONLY if they are not already set (e.g. by manual ingestion)
         # We consider "PENDING" or "UNKNOWN" as "not set" for the purpose of heuristic extraction

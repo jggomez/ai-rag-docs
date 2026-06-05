@@ -57,7 +57,13 @@ class TestIngestDocumentCommand(unittest.TestCase):
 
     def test_execute_csv_row(self):
         # Setup
-        row_data = {"Para": "User", "Descripcion": "Test", "Enviadas": "File"}
+        row_data = {
+            "Id borradores": "123",
+            "Fecha": "2026-06-05",
+            "Frente": "GENERAL",
+            "Enviadas": "File",
+            "Ubicacion filtradas": "https://drive.google.com/file/d/1/view"
+        }
         mock_pipeline = MagicMock()
         
         # Configure the mock pipeline to return the payload it receives

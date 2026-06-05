@@ -40,15 +40,6 @@ class IngestDocumentCommand:
         
         for index, row in enumerate(rows):
             row_label = row.get("Enviadas", "").strip() or f"row-{index}"
-            
-            # --- START VALIDATION ---
-            rec_url_val = row.get("url Recibidas", "").strip()
-            filt_url_val = row.get("Ubicacion filtradas", "").strip()
-            
-            if "Sin ruta" in rec_url_val or "Sin URL origen" in filt_url_val:
-                logger.info(f"Skipping row {row_label} due to invalid URLs (Sin ruta/Sin URL origen)")
-                continue
-            # --- END VALIDATION ---
 
             try:
                 logger.info(f"Processing CSV row: {row_label}")

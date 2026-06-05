@@ -80,7 +80,7 @@ class TestResponseGenerator:
     def test_format_similar_chunks_empty(self, generator):
         gen, _ = generator
         result = gen._format_similar_chunks([])
-        assert "No se encontraron" in result
+        assert "No similar previous communications were found." in result
 
     def test_format_similar_chunks_numbered(self, generator):
         gen, _ = generator
@@ -96,7 +96,7 @@ class TestResponseGenerator:
     def test_format_sent_texts_empty(self, generator):
         gen, _ = generator
         result = gen._format_sent_texts({})
-        assert "No se encontraron" in result
+        assert "No previous sent response letters were found for reference." in result
 
     def test_format_sent_texts_with_content(self, generator):
         gen, _ = generator

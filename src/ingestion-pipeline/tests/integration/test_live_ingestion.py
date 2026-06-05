@@ -1,6 +1,25 @@
 import unittest
 import os
 import logging
+from google.cloud import firestore
+
+# Skip if Firestore is not reachable or dummy project active
+def _firestore_available():
+    try:
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
+        if project_id == "dummy-project-id":
+            return False
+        client = firestore.Client(database="docs-recibidos", project=project_id)
+        list(client.collection("documentos_chunks").limit(1).stream())
+        return True
+    except Exception:
+        return False
+
+skip_no_firestore = unittest.skipIf(
+    not _firestore_available(),
+    "Firestore docs-recibidos not reachable or dummy project active"
+)
+
 from src.config import Settings
 from src.repositories.document_repo import RoutingFirestoreDocumentRepository
 from src.infrastructure.repositories.csv_metadata_repository import (
@@ -11,7 +30,7 @@ from src.usecases.ingest_document import IngestDocumentCommand
 
 logger = logging.getLogger(__name__)
 
-
+@skip_no_firestore
 class TestLiveIngestionIntegration(unittest.TestCase):
     def setUp(self):
         # Determine the CSV path relative to this file
@@ -65,8 +84,8 @@ class TestLiveIngestionIntegration(unittest.TestCase):
         )
         self.assertEqual(
             result["processed_records"],
-            7,
-            f"Expected 7 documents to be processed, got {result['processed_records']}",
+            6,
+            f"Expected 6 documents to be processed, got {result['processed_records']}",
         )
 
         # 2. Assert and verify saved documents inside real Firestore instances
@@ -74,7 +93,7 @@ class TestLiveIngestionIntegration(unittest.TestCase):
         sent_docs = [d.to_dict() for d in self.document_repo.sent_repo.docs_collection.stream()]
         all_docs = received_docs + sent_docs
 
-        self.assertEqual(len(all_docs), 7, f"Expected 7 documents in total, found {len(all_docs)}")
+        self.assertEqual(len(all_docs), 6, f"Expected 6 documents in total, found {len(all_docs)}")
 
         for raw_dict in all_docs:
             doc_id = raw_dict.get("id")

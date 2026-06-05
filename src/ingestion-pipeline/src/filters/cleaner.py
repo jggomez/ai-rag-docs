@@ -36,17 +36,17 @@ def document_cleaner(raw_text):
     # Remove repetitive header blocks (generic structural patterns)
     noise_patterns = [
         # Generic: lines matching address patterns (Street + Number)
-        r"^(?:Calle|Carrera|Avenida|Av\.)\s+\d+.*$",
-        r"TEL: \d+",
-        r"NIT\.? \d+\.\d+\.\d+-\d+",
+        r"(?i)^\s*(?:Calle|Carrera|Avenida|Av\.)\s+\d+.*$",
+        r"(?i)TEL: \d+",
+        r"(?i)NIT\.? \d+\.\d+\.\d+-\d+",
         # Generic: short ALL-CAPS lines (likely entity/header names)
         r"^[A-ZÁÉÍÓÚÑ\s/\-\.]{5,60}$",
-        r"INGENIEROS\s+CONSULTORES",
-        r"Radicado por:.*",
-        r"Radicado EPM \d+"
+        r"(?i)INGENIEROS\s+CONSULTORES",
+        r"(?i)Radicado por:.*",
+        r"(?i)Radicado EPM \d+"
     ]
     for pattern in noise_patterns:
-        body = re.sub(pattern, "", body, flags=re.IGNORECASE | re.MULTILINE)
+        body = re.sub(pattern, "", body, flags=re.MULTILINE)
 
     # Remove digital signature residuals (Timestamp and hex-like hashes)
     body = re.sub(r"\d{10,}\s\d{2}:\d+", "", body)  # Signature timestamps

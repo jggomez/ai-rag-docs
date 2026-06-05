@@ -19,8 +19,10 @@ from src.filters.pdf_generator import PDFResponseGenerator
 
 # Skip if Firestore is not reachable
 def _firestore_available():
+    import os
     try:
-        client = firestore.Client(database="docs-recibidos", project="devhack-3f0c2")
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
+        client = firestore.Client(database="docs-recibidos", project=project_id)
         # Use a small query to verify connectivity
         list(client.collection("documentos_chunks").limit(1).stream())
         return True
@@ -40,9 +42,13 @@ class TestVectorSearchIntegration:
 
     @pytest.fixture(autouse=True)
     def setup_repo(self):
+        import os
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
+        client_received = firestore.Client(database="docs-recibidos", project=project_id)
+        client_sent = firestore.Client(database="docs-enviados", project=project_id)
         self.repo = FirestoreVectorSearchRepository(
-            database_received="docs-recibidos",
-            database_sent="docs-enviados",
+            client_received=client_received,
+            client_sent=client_sent,
         )
         # Get a real vector from an existing chunk for testing
         chunks = self.repo.chunks_collection.limit(1).get()
@@ -120,9 +126,13 @@ class TestPDFGeneratorIntegration:
     """Real integration test: generate a PDF from actual Firestore data."""
 
     def test_generate_pdf_from_real_chunk_data(self):
+        import os
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
+        client_received = firestore.Client(database="docs-recibidos", project=project_id)
+        client_sent = firestore.Client(database="docs-enviados", project=project_id)
         repo = FirestoreVectorSearchRepository(
-            database_received="docs-recibidos",
-            database_sent="docs-enviados",
+            client_received=client_received,
+            client_sent=client_sent,
         )
         chunks = repo.chunks_collection.limit(1).get()
         if not chunks:

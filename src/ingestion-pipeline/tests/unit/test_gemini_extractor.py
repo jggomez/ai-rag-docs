@@ -49,6 +49,6 @@ def test_gemini_extractor_structured_output(mock_client_class):
     assert kwargs['config'].response_schema == ExtractedContent
     
     # Verify metadata updates
-    assert result.document.metadata["extracted_text"] == "Test Body Content"
+    assert result.document.metadata["extracted_text"] == "Test Body Content\n\n---\n\nTest Tabular Data"
     assert result.document.metadata["document_subject"] == "Test Subject"
     assert result.document.metadata["visual_tabular_data"] == "Test Tabular Data"
