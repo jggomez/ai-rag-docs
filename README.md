@@ -357,6 +357,7 @@ cd src/ingestion-pipeline
 | [001 — RAG Document Ingestion](specs/001-rag-document-ingestion/spec.md) | Pipe & Filter pipeline: extract, embed, and save to Firestore. | ✅ Completed |
 | [002 — CSV Metadata & Batch API](specs/002-csv-metadata-integration/spec.md) | Batch ingestion via CSV + FastAPI endpoint. | ✅ Completed |
 | [003 — Drive Ingestion & LLM OCR](specs/003-drive-ingestion-llm-ocr/spec.md) | Google Drive download + Gemini OCR for scanned documents. | ✅ Completed |
+| [004 — Agentic RAG Optimization](src/agent-communications/README.md) | Enhanced filtering (Dates, Subjects, IDs) + Reasoning Cycle. | ✅ Completed |
 
 ---
 
