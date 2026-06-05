@@ -190,15 +190,13 @@ def search_communications(
         for i, chunk in enumerate(similar_chunks, 1):
             context.append(f"\n--- Document #{i} ---")
             context.append(f"Subject: {chunk.get('asunto', 'N/A')}")
+            context.append(f"Document Code: {chunk.get('nombre_archivo', 'N/A')}")
             context.append(f"Date: {chunk.get('fecha_documento', 'N/A')}")
-            context.append(
-                f"Contract: {chunk.get('numero_contrato', 'N/A')} | Process: {chunk.get('proceso', 'N/A')}"
-            )
-            context.append(
-                f"Sender: {chunk.get('remitente', 'N/A')} | Work Front: {chunk.get('frente_trabajo', 'N/A')}"
-            )
+            context.append(f"Contract: {chunk.get('numero_contrato', 'N/A')} | Process: {chunk.get('proceso', 'N/A')}")
+            context.append(f"Sender: {chunk.get('remitente', 'N/A')} | Work Front: {chunk.get('frente_trabajo', 'N/A')}")
             context.append(f"Draft ID: {chunk.get('id_borrador', 'N/A')}")
             context.append(f"Extracted text: {chunk.get('texto', 'N/A')}")
+
 
             draft_id = chunk.get("id_borrador")
             if draft_id and draft_id in sent_texts:
