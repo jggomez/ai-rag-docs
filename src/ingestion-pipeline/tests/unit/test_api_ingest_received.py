@@ -15,29 +15,17 @@ class TestApiIngestReceived(unittest.TestCase):
 
     @patch("src.main.ingest_command")
     @patch("src.main.pipeline_builder")
-    def test_ingest_received_with_sent_success(self, mock_builder, mock_command):
-        # Mock strategy pipelines
-        mock_pipeline_rec = MagicMock()
-        mock_pipeline_sen = MagicMock()
-        
-        # Side effect to return different pipelines based on document_type
-        from src.domain.enums import DocumentType
-        def build_pipeline_side_effect(document_type, document_repo):
-            if document_type == DocumentType.RECEIVED:
-                return mock_pipeline_rec
-            return mock_pipeline_sen
-            
-        mock_builder.build_pipeline_for_document.side_effect = build_pipeline_side_effect
+    def test_ingest_received_success(self, mock_builder, mock_command):
+        mock_pipeline = MagicMock()
+        mock_builder.build_pipeline_for_document.return_value = mock_pipeline
 
         response = self.client.post("/api/v1/ingestdocumentreceived", json={
-            "url": "https://drive.google.com/file/d/REC_ID/view",
-            "metadata": {
-                "draft_id": "76857089",
-                "document_date": "2026-06-06",
-                "work_front": "Descarga",
-                "code": "REC-001",
-                "response_file_url": "https://drive.google.com/file/d/SEN_ID/view"
-            }
+            "work_front": "Descarga",
+            "document_date": "2026-06-06",
+            "id_borrador": "76857089",
+            "filename": "REC-001.pdf",
+            "document_type": "received",
+            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
         })
 
         self.assertEqual(response.status_code, 200)
@@ -45,42 +33,51 @@ class TestApiIngestReceived(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["received_document"]["filename"], "REC-001.pdf")
         self.assertEqual(result["received_document"]["document_type"], "received")
-        self.assertEqual(result["sent_document"]["status"], "completed")
+        self.assertIsNone(result["sent_document"])
 
-        # Verify both pipelines were built and run
-        self.assertEqual(mock_builder.build_pipeline_for_document.call_count, 2)
-        self.assertEqual(mock_command._run_pipeline.call_count, 2)
+        mock_builder.build_pipeline_for_document.assert_called_once()
+        mock_command._run_pipeline.assert_called_once()
 
     @patch("src.main.ingest_command")
     @patch("src.main.pipeline_builder")
-    def test_ingest_received_only_success(self, mock_builder, mock_command):
-        mock_pipeline_rec = MagicMock()
-        mock_builder.build_pipeline_for_document.return_value = mock_pipeline_rec
+    def test_ingest_sent_success(self, mock_builder, mock_command):
+        mock_pipeline = MagicMock()
+        mock_builder.build_pipeline_for_document.return_value = mock_pipeline
 
         response = self.client.post("/api/v1/ingestdocumentreceived", json={
-            "url": "https://drive.google.com/file/d/REC_ID/view",
-            "metadata": {
-                "draft_id": "76857089",
-                "document_date": "2026-06-06",
-                "work_front": "Descarga",
-                "code": "REC-001",
-                "response_file_url": None
-            }
+            "work_front": "Descarga",
+            "document_date": "2026-06-06",
+            "id_borrador": "76857089",
+            "filename": "SEN-001.pdf",
+            "document_type": "sent",
+            "url_doc": "https://drive.google.com/file/d/SEN_ID/view"
         })
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["received_document"]["filename"], "REC-001.pdf")
+        self.assertEqual(result["received_document"]["filename"], "SEN-001.pdf")
+        self.assertEqual(result["received_document"]["document_type"], "sent")
         self.assertIsNone(result["sent_document"])
 
-        # Verify only one pipeline was built and run
         mock_builder.build_pipeline_for_document.assert_called_once()
         mock_command._run_pipeline.assert_called_once()
 
+    def test_ingest_received_invalid_type(self):
+        response = self.client.post("/api/v1/ingestdocumentreceived", json={
+            "work_front": "Descarga",
+            "document_date": "2026-06-06",
+            "id_borrador": "76857089",
+            "filename": "REC-001.pdf",
+            "document_type": "other",
+            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("document_type must be either 'sent' or 'received'", response.json()["detail"])
+
     def test_ingest_received_missing_fields(self):
         response = self.client.post("/api/v1/ingestdocumentreceived", json={
-            "url": "https://drive.google.com/file/d/REC_ID/view"
+            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
         })
         self.assertEqual(response.status_code, 422)
 

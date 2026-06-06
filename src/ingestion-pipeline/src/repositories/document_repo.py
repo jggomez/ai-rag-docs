@@ -28,6 +28,10 @@ class DocumentRepository(ABC):
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         pass
 
+    @abstractmethod
+    def get_document_by_object_name(self, object_name: str) -> Optional[SourceDocument]:
+        pass
+
 
 class FirestoreDocumentRepository(DocumentRepository):
     def __init__(self, database: str = "(default)", client: firestore.Client = None):
@@ -72,6 +76,13 @@ class FirestoreDocumentRepository(DocumentRepository):
         if error:
             update_data["error"] = error
         doc_ref.update(update_data)
+
+    def get_document_by_object_name(self, object_name: str) -> Optional[SourceDocument]:
+        query = self.docs_collection.where("nombre_objeto", "==", object_name).limit(1)
+        results = query.get()
+        for doc in results:
+            return self._to_english_document(doc.to_dict())
+        return None
 
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         if not chunks:
@@ -293,6 +304,12 @@ class RoutingFirestoreDocumentRepository(DocumentRepository):
             self.received_repo.update_status(document_id, status, error)
         else:
             self.sent_repo.update_status(document_id, status, error)
+
+    def get_document_by_object_name(self, object_name: str) -> Optional[SourceDocument]:
+        doc = self.received_repo.get_document_by_object_name(object_name)
+        if doc:
+            return doc
+        return self.sent_repo.get_document_by_object_name(object_name)
 
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         if not chunks:

@@ -81,16 +81,13 @@ class SingleIngestRequest(BaseModel):
     filename: Optional[str] = Field(None, description="Optional custom filename/identifier")
     metadata: IngestRequestMetadata
 
-class IngestReceivedMetadata(BaseModel):
-    draft_id: str
-    document_date: str
-    work_front: str
-    code: str
-    response_file_url: Optional[str] = None
-
 class IngestReceivedRequest(BaseModel):
-    url: str = Field(..., description="The Drive or GCS file URL")
-    metadata: IngestReceivedMetadata
+    work_front: str
+    document_date: str
+    id_borrador: str
+    filename: str
+    document_type: str
+    url_doc: str
 
 # 1. Dependency injection and wiring
 storage_repo = GCSStorageRepository()
@@ -253,69 +250,33 @@ def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRe
 
 
 def _build_received_document(request: IngestReceivedRequest) -> SourceDocument:
-    """Build a SourceDocument representing the RECEIVED document from the request."""
-    draft_id = request.metadata.draft_id
-    code = request.metadata.code.strip()
+    """Build a SourceDocument from the flat IngestReceivedRequest."""
+    doc_type_str = request.document_type.lower().strip()
+    doc_type = DocumentType.RECEIVED if doc_type_str == "received" else DocumentType.SENT
     
-    filename = f"{code}.pdf"
-    object_name = code
+    filename = request.filename.strip()
+    object_name = filename[:-4] if filename.lower().endswith(".pdf") else filename
     
-    extra_meta = {
-        "url_recibido": request.url,
-    }
-    
-    if request.metadata.response_file_url:
-        response_url = request.metadata.response_file_url.strip()
-        if response_url.lower().startswith("http") and "sin" not in response_url.lower():
-            extra_meta["url_enviado"] = response_url
+    extra_meta = {}
+    if doc_type == DocumentType.RECEIVED:
+        extra_meta["url_recibido"] = request.url_doc
+    else:
+        extra_meta["url_enviado"] = request.url_doc
 
     return SourceDocument(
-        id=f"{draft_id}_REC",
+        id=f"{request.id_borrador}_{'REC' if doc_type == DocumentType.RECEIVED else 'SEN'}",
         filename=filename,
         bucket="SINGLE_API",
         object_name=object_name,
         content_type="application/pdf",
         size_bytes=0,
         status=DocumentStatus.PENDING,
-        document_type=DocumentType.RECEIVED,
-        source_url=request.url,
-        work_front=request.metadata.work_front,
-        document_date=request.metadata.document_date,
-        response_file_url=request.metadata.response_file_url,
-        draft_id=draft_id,
-        metadata=extra_meta
-    )
-
-
-def _build_sent_document(request: IngestReceivedRequest) -> SourceDocument:
-    """Build a SourceDocument representing the SENT document from the request."""
-    draft_id = request.metadata.draft_id
-    response_url = request.metadata.response_file_url.strip()
-    
-    clean_url = response_url.split("?")[0]
-    filename = os.path.basename(clean_url) or f"sen-{draft_id}.pdf"
-    if not filename.lower().endswith(".pdf"):
-        filename = f"{filename}.pdf"
-
-    extra_meta = {
-        "url_recibido": request.url,
-        "url_enviado": response_url
-    }
-
-    return SourceDocument(
-        id=f"{draft_id}_SEN",
-        filename=filename,
-        bucket="SINGLE_API",
-        object_name=f"{draft_id}_SEN",
-        content_type="application/pdf",
-        size_bytes=0,
-        status=DocumentStatus.PENDING,
-        document_type=DocumentType.SENT,
-        source_url=response_url,
-        work_front=request.metadata.work_front,
-        document_date=request.metadata.document_date,
+        document_type=doc_type,
+        source_url=request.url_doc,
+        work_front=request.work_front,
+        document_date=request.document_date,
         response_file_url=None,
-        draft_id=draft_id,
+        draft_id=request.id_borrador,
         metadata=extra_meta
     )
 
@@ -364,46 +325,37 @@ async def ingest_single_document(request: SingleIngestRequest):
 @app.post("/api/v1/ingestdocumentreceived")
 async def ingest_document_received(request: IngestReceivedRequest):
     """
-    Ingest a single received document.
-    If response_file_url is provided and is a valid URL, also ingests the corresponding sent document.
+    Ingest a single received or sent document using the flat request payload.
     """
     try:
-        # 1. Process RECEIVED document
-        doc_received = _build_received_document(request)
-        selected_pipeline_rec = pipeline_builder.build_pipeline_for_document(
-            document_type=doc_received.document_type,
+        # Validate early
+        doc_type_str = request.document_type.lower().strip()
+        if doc_type_str not in ("received", "sent"):
+            raise HTTPException(
+                status_code=400, 
+                detail="document_type must be either 'sent' or 'received'"
+            )
+
+        # Build document
+        doc = _build_received_document(request)
+        
+        # Build pipeline
+        selected_pipeline = pipeline_builder.build_pipeline_for_document(
+            document_type=doc.document_type,
             document_repo=document_repo,
         )
-        logger.info(f"Ingesting RECEIVED document: {doc_received.filename} (ID: {doc_received.id})")
-        ingest_command._run_pipeline(doc_received, pipeline=selected_pipeline_rec)
-
-        # 2. Process SENT document if valid response_file_url is provided
-        sent_ingested = False
-        sent_doc_id = None
-        response_url = request.metadata.response_file_url
         
-        if response_url and response_url.strip().lower().startswith("http") and "sin" not in response_url.lower():
-            doc_sent = _build_sent_document(request)
-            selected_pipeline_sen = pipeline_builder.build_pipeline_for_document(
-                document_type=doc_sent.document_type,
-                document_repo=document_repo,
-            )
-            logger.info(f"Ingesting SENT document: {doc_sent.filename} (ID: {doc_sent.id})")
-            ingest_command._run_pipeline(doc_sent, pipeline=selected_pipeline_sen)
-            sent_ingested = True
-            sent_doc_id = doc_sent.id
-
+        logger.info(f"Ingesting document: {doc.filename} (ID: {doc.id})")
+        ingest_command._run_pipeline(doc, pipeline=selected_pipeline)
+        
         return {
             "status": "completed",
             "received_document": {
-                "document_id": doc_received.id,
-                "filename": doc_received.filename,
-                "document_type": "received"
+                "document_id": doc.id,
+                "filename": doc.filename,
+                "document_type": doc_type_str
             },
-            "sent_document": {
-                "document_id": sent_doc_id,
-                "status": "completed"
-            } if sent_ingested else None
+            "sent_document": None
         }
 
     except HTTPException:
@@ -418,40 +370,28 @@ retrieve_command = RetrieveAndGenerateCommand(settings, document_repo)
 
 
 class RetrieveRequest(BaseModel):
-    url: str = Field(..., description="URL of the received document to analyze")
-    document_type: str = Field(default="received", description="Always 'received'")
-    filename: Optional[str] = Field(None, description="Optional custom filename/identifier")
-    codcomunicadorecibido: Optional[str] = Field(None, description="Optional code of received document to exclude")
-    metadata: IngestRequestMetadata
+    codcomunicadorecibido: Optional[str] = None
+    iddocumentrecibido: Optional[str] = None
 
 
 @app.post("/api/v1/retrieve")
 async def retrieve_document(request: RetrieveRequest):
     """
-    RAG Retriever endpoint: receives a document URL, extracts its content,
-    searches for similar communications, resolves linked sent documents,
-    generates a response letter with Gemini, and returns a PDF.
+    RAG Retriever endpoint: looks up an ingested document in Firestore by
+    iddocumentrecibido or codcomunicadorecibido, and runs the RAG pipeline using its content.
     """
     try:
-        # Validate document type
-        if request.document_type.lower().strip() != "received":
+        if not request.iddocumentrecibido and not request.codcomunicadorecibido:
             raise HTTPException(
                 status_code=400,
-                detail="document_type must be 'received' for the retrieve endpoint"
+                detail="At least one of iddocumentrecibido or codcomunicadorecibido must be provided"
             )
 
-        # Build the document entity
-        doc = _build_document_from_request(request)
-
-        # Add custom tags to MLflow trace for better observability
-        if mlflow.active_run():
-            mlflow.set_tags({
-                "work_front": doc.work_front,
-                "document_type": "rag_retrieval"
-            })
-
         # Execute the RAG pipeline
-        result = retrieve_command.execute(doc)
+        result = retrieve_command.execute(
+            id_documento_recibido=request.iddocumentrecibido,
+            cod_comunicado_recibido=request.codcomunicadorecibido
+        )
 
         # Return RAG metadata as JSON response
         return {
@@ -462,6 +402,9 @@ async def retrieve_document(request: RetrieveRequest):
             "gcs_url": result.get("gcs_url", ""),
         }
 
+    except ValueError as val_err:
+        logger.error(f"Value error in RAG retrieval: {str(val_err)}")
+        raise HTTPException(status_code=400, detail=str(val_err))
     except HTTPException:
         raise
     except Exception as e:

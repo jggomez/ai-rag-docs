@@ -5,8 +5,6 @@ from typing import List, Dict, Optional
 from google.cloud import storage
 from src.domain.entities import SourceDocument, ProcessingPayload, DocumentChunk
 from src.domain.enums import DocumentStatus, DocumentType
-from src.filters.drive_downloader import DriveDownloader
-from src.filters.gemini_extractor import GeminiExtractor
 from src.filters.embedder import VectorEmbedder
 from src.filters.pdf_generator import PDFResponseGenerator
 from src.repositories.vector_search_repo import FirestoreVectorSearchRepository
@@ -32,12 +30,6 @@ class RetrieveAndGenerateCommand:
         self.settings = settings
         self.document_repo = document_repo
 
-        # OCR extractor for received documents
-        self.extractor = GeminiExtractor(
-            api_key=settings.gemini_api_key,
-            model_name=settings.ocr_model,
-        )
-
         # Embedding generator for query vector
         self.embedder = VectorEmbedder(
             api_key=settings.gemini_api_key,
@@ -59,55 +51,69 @@ class RetrieveAndGenerateCommand:
         # PDF generator
         self.pdf_generator = PDFResponseGenerator()
 
-        # Drive downloader for fetching the PDF
-        self.downloader = DriveDownloader()
-
-    def execute(self, document: SourceDocument) -> dict:
+    def execute(
+        self,
+        id_documento_recibido: Optional[str] = None,
+        cod_comunicado_recibido: Optional[str] = None,
+    ) -> dict:
         """
-        Executes the complete retrieve-and-generate pipeline.
+        Executes the complete retrieve-and-generate pipeline using an already ingested document.
 
         Args:
-            document: SourceDocument with URL and metadata of the received document.
+            id_documento_recibido: Optional ID of the received document to retrieve.
+            cod_comunicado_recibido: Optional object/file code of the received document.
 
         Returns:
-            Dict with keys: 'pdf_bytes', 'generated_text', 'similar_count', 'sent_count', 'subject'
+            Dict with keys: 'pdf_bytes', 'generated_text', 'similar_count', 'sent_count', 'subject', 'gcs_url'
         """
-        logger.info(f"Starting RAG retrieval for document: {document.source_url}")
+        logger.info(
+            f"Starting RAG retrieval. id_documento_recibido={id_documento_recibido}, "
+            f"cod_comunicado_recibido={cod_comunicado_recibido}"
+        )
 
-        # Step 1: Download the PDF from Drive
-        payload = ProcessingPayload(document=document)
-        payload = self.downloader.process(payload)
+        # 1. Retrieve the document from Firestore
+        document = None
+        if id_documento_recibido:
+            document = self.document_repo.get_document(id_documento_recibido)
 
-        if document.status == DocumentStatus.FAILED:
-            raise ValueError(f"Failed to download document: {document.metadata.get('error', 'Unknown error')}")
+        if not document and cod_comunicado_recibido:
+            document = self.document_repo.get_document_by_object_name(cod_comunicado_recibido)
 
-        # Step 2: OCR extraction with Gemini
-        payload = self.extractor.process(payload)
-        received_subject = document.metadata.get("document_subject", "Sin asunto")
-        received_body = document.metadata.get("extracted_text", "")
+        if not document:
+            raise ValueError(
+                f"No ingested received document found matching "
+                f"id_documento_recibido={id_documento_recibido} or "
+                f"cod_comunicado_recibido={cod_comunicado_recibido}"
+            )
+
+        # 2. Extract values directly from the stored document
+        received_subject = document.metadata.get("document_subject") or "Sin asunto"
+        received_body = document.metadata.get("extracted_text")
 
         if not received_body:
-            raise ValueError("OCR extraction produced no text content.")
+            raise ValueError(
+                f"The matching document {document.id} does not contain extracted_text."
+            )
 
-        logger.info(f"OCR complete. Subject: {received_subject[:80]}")
+        logger.info(f"Retrieved document content from DB. Subject: {received_subject[:80]}")
 
-        # Step 3: Generate embedding vector for the extracted text
+        # 3. Generate embedding vector for the query text
         query_text = f"{received_subject}\n{received_body}"
         query_embedding = self._generate_query_embedding(query_text)
 
-        # Step 4: Hybrid vector search — filtered by work_front with fallback
-        codcomunicadorecibido = document.metadata.get("codcomunicadorecibido")
+        # 4. Hybrid vector search — filtered by work_front with fallback, excluding current document
+        exclusion_code = cod_comunicado_recibido or document.object_name
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
             query_text=query_text,
             work_front=document.work_front,
-            codcomunicadorecibido=codcomunicadorecibido,
+            codcomunicadorecibido=exclusion_code,
         )
 
-        # Step 5: Resolve linked sent documents via draft_id
+        # 5. Resolve linked sent documents via draft_id
         sent_texts = self.vector_search_repo.resolve_sent_documents(similar_chunks)
 
-        # Step 6: Generate response text with Gemini
+        # 6. Generate response text with Gemini
         metadata_context = {
             "work_front": document.work_front,
             "document_date": document.document_date,
@@ -122,7 +128,7 @@ class RetrieveAndGenerateCommand:
             metadata=metadata_context,
         )
 
-        # Step 7: Generate PDF with the response
+        # 7. Generate PDF with the response
         pdf_bytes = self.pdf_generator.generate_response_pdf(
             response_text=generated_text,
             metadata=metadata_context,
@@ -130,12 +136,12 @@ class RetrieveAndGenerateCommand:
             sent_texts=sent_texts,
         )
 
-        # Step 8: Upload PDF to GCS
+        # 8. Upload PDF to GCS
         gcs_url = self._upload_to_gcs(pdf_bytes, document)
 
-        # Step 9: Save the generated response to the database (docs-enviados)
+        # 9. Save the generated response to the database (docs-enviados)
         sent_document = SourceDocument(
-            id=f"{document.id}_SEN", # Ensure it maps to sent DB if using routing repo, or just let it generate one with suffix
+            id=f"{document.id}_SEN",
             filename=gcs_url.split('/')[-1],
             bucket=self.settings.gcs_output_bucket,
             object_name=gcs_url.split('/')[-1],
@@ -150,12 +156,13 @@ class RetrieveAndGenerateCommand:
             draft_id=document.draft_id,
             metadata={
                 "created_by_rag": True,
+                "url_recibido": document.source_url,
+                "url_enviado": gcs_url,
                 "extracted_text": generated_text,
                 "document_subject": f"RE: {received_subject}"
             }
         )
-        
-        # We need the document repository to save it. We'll add it to the init.
+
         if hasattr(self, 'document_repo') and self.document_repo:
             self.document_repo.save_document(sent_document)
             logger.info(f"Saved generated response to database with ID: {sent_document.id}")

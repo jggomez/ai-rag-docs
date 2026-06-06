@@ -1,6 +1,6 @@
 """Unit tests for the RetrieveAndGenerateCommand orchestrator."""
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 import pytest
 from src.usecases.retrieve_and_generate import RetrieveAndGenerateCommand
 from src.domain.entities import SourceDocument
@@ -16,7 +16,17 @@ def _make_document(**overrides):
         source_url="https://drive.google.com/file/d/FAKE/view",
         work_front="Descarga", document_date="2025-02-26",
         draft_id="76857089",
+        metadata={
+            "extracted_text": "Body text",
+            "document_subject": "Test Subject"
+        }
     )
+    # Merging metadata if provided in overrides
+    if "metadata" in overrides:
+        meta = defaults["metadata"].copy()
+        meta.update(overrides.pop("metadata"))
+        defaults["metadata"] = meta
+        
     defaults.update(overrides)
     return SourceDocument(**defaults)
 
@@ -25,7 +35,6 @@ def _make_document(**overrides):
 def mock_settings():
     s = MagicMock()
     s.gemini_api_key = "fake"
-    s.ocr_model = "gemini-3-flash-preview"
     s.embedding_model = "gemini-embedding-2"
     s.generation_model = "gemini-3-flash-preview"
     s.firestore_database_received = "docs-recibidos"
@@ -39,28 +48,17 @@ def mock_settings():
 @patch("src.usecases.retrieve_and_generate.FirestoreVectorSearchRepository")
 @patch("src.usecases.retrieve_and_generate.ResponseGenerator")
 @patch("src.usecases.retrieve_and_generate.VectorEmbedder")
-@patch("src.usecases.retrieve_and_generate.GeminiExtractor")
-@patch("src.usecases.retrieve_and_generate.DriveDownloader")
 class TestRetrieveAndGenerateCommand:
 
     def test_full_pipeline_success(
-        self, MockDownloader, MockExtractor, MockEmbedder,
-        MockResponseGen, MockVectorRepo, MockStorage, mock_settings
+        self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
         doc = _make_document()
 
-        # Mock downloader
-        downloader = MockDownloader.return_value
-        def download_side_effect(payload):
-            payload.document.metadata["extracted_text"] = "Body text"
-            payload.document.metadata["document_subject"] = "Test Subject"
-            payload.content = b"pdf-bytes"
-            return payload
-        downloader.process.side_effect = download_side_effect
-
-        # Mock extractor
-        extractor = MockExtractor.return_value
-        extractor.process.side_effect = lambda p: p  # No-op, already set by downloader
+        # Mock document repo
+        mock_document_repo = MagicMock()
+        mock_document_repo.get_document.return_value = doc
+        mock_document_repo.get_document_by_object_name.return_value = doc
 
         # Mock vector repo
         vector_repo = MockVectorRepo.return_value
@@ -82,14 +80,13 @@ class TestRetrieveAndGenerateCommand:
         mock_gcs.bucket.return_value = mock_bucket
         mock_bucket.blob.return_value = mock_blob
 
-        cmd = RetrieveAndGenerateCommand(mock_settings)
-        cmd.downloader = downloader
-        cmd.extractor = extractor
+        cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
         cmd.vector_search_repo = vector_repo
         cmd.response_generator = response_gen
         cmd._generate_query_embedding = MagicMock(return_value=[0.1] * 768)
 
-        result = cmd.execute(doc)
+        # 1. Test execute with id_documento_recibido
+        result = cmd.execute(id_documento_recibido="test-doc")
 
         assert "pdf_bytes" in result
         assert result["similar_count"] == 1
@@ -97,57 +94,51 @@ class TestRetrieveAndGenerateCommand:
         assert result["subject"] == "Test Subject"
         assert "gcs_url" in result
 
-    def test_fails_on_download_error(
-        self, MockDownloader, MockExtractor, MockEmbedder,
-        MockResponseGen, MockVectorRepo, MockStorage, mock_settings
+        mock_document_repo.get_document.assert_called_once_with("test-doc")
+        mock_document_repo.save_document.assert_called_once()
+
+        # 2. Test execute with cod_comunicado_recibido
+        mock_document_repo.get_document.reset_mock()
+        mock_document_repo.get_document.return_value = None
+        mock_document_repo.save_document.reset_mock()
+
+        result = cmd.execute(cod_comunicado_recibido="REC-001")
+        mock_document_repo.get_document.assert_not_called()
+        mock_document_repo.get_document_by_object_name.assert_called_once_with("REC-001")
+        mock_document_repo.save_document.assert_called_once()
+
+    def test_fails_when_document_not_found(
+        self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
-        doc = _make_document()
+        mock_document_repo = MagicMock()
+        mock_document_repo.get_document.return_value = None
+        mock_document_repo.get_document_by_object_name.return_value = None
 
-        downloader = MockDownloader.return_value
-        def fail_download(payload):
-            payload.document.status = DocumentStatus.FAILED
-            payload.document.metadata["error"] = "403 Forbidden"
-            return payload
-        downloader.process.side_effect = fail_download
+        cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
 
-        cmd = RetrieveAndGenerateCommand(mock_settings)
-        cmd.downloader = downloader
+        with pytest.raises(ValueError, match="No ingested received document found matching"):
+            cmd.execute(id_documento_recibido="nonexistent-id")
 
-        with pytest.raises(ValueError, match="Failed to download"):
-            cmd.execute(doc)
-
-    def test_fails_on_empty_ocr(
-        self, MockDownloader, MockExtractor, MockEmbedder,
-        MockResponseGen, MockVectorRepo, MockStorage, mock_settings
+    def test_fails_when_extracted_text_missing(
+        self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
-        doc = _make_document()
+        doc = _make_document(metadata={"extracted_text": None})
 
-        downloader = MockDownloader.return_value
-        downloader.process.side_effect = lambda p: p  # No metadata set
-        extractor = MockExtractor.return_value
-        extractor.process.side_effect = lambda p: p
+        mock_document_repo = MagicMock()
+        mock_document_repo.get_document.return_value = doc
 
-        cmd = RetrieveAndGenerateCommand(mock_settings)
-        cmd.downloader = downloader
-        cmd.extractor = extractor
+        cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
 
-        with pytest.raises(ValueError, match="no text content"):
-            cmd.execute(doc)
+        with pytest.raises(ValueError, match="does not contain extracted_text"):
+            cmd.execute(id_documento_recibido="test-doc")
 
     def test_passes_work_front_to_vector_search(
-        self, MockDownloader, MockExtractor, MockEmbedder,
-        MockResponseGen, MockVectorRepo, MockStorage, mock_settings
+        self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
         doc = _make_document(work_front="ACME Front")
 
-        downloader = MockDownloader.return_value
-        def setup_payload(payload):
-            payload.document.metadata["extracted_text"] = "Text"
-            payload.document.metadata["document_subject"] = "Sub"
-            return payload
-        downloader.process.side_effect = setup_payload
-        extractor = MockExtractor.return_value
-        extractor.process.side_effect = lambda p: p
+        mock_document_repo = MagicMock()
+        mock_document_repo.get_document.return_value = doc
 
         vector_repo = MockVectorRepo.return_value
         vector_repo.find_similar_chunks.return_value = []
@@ -159,14 +150,14 @@ class TestRetrieveAndGenerateCommand:
         mock_gcs = MockStorage.return_value
         mock_gcs.bucket.return_value.blob.return_value = MagicMock()
 
-        cmd = RetrieveAndGenerateCommand(mock_settings)
-        cmd.downloader = downloader
-        cmd.extractor = extractor
+        cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
         cmd.vector_search_repo = vector_repo
         cmd.response_generator = response_gen
         cmd._generate_query_embedding = MagicMock(return_value=[0.1] * 768)
 
-        cmd.execute(doc)
+        cmd.execute(id_documento_recibido="test-doc")
 
         call_kwargs = vector_repo.find_similar_chunks.call_args.kwargs
         assert call_kwargs["work_front"] == "ACME Front"
+        # Exclusion code should match document.object_name
+        assert call_kwargs["codcomunicadorecibido"] == "test.pdf"

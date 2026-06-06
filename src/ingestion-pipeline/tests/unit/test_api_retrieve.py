@@ -1,56 +1,63 @@
 """Unit tests for the /api/v1/retrieve endpoint."""
 
 from unittest.mock import patch, MagicMock
-import pytest
 from fastapi.testclient import TestClient
 
-
-@patch("src.usecases.retrieve_and_generate.FirestoreVectorSearchRepository")
-@patch("src.usecases.retrieve_and_generate.ResponseGenerator")
-@patch("src.usecases.retrieve_and_generate.VectorEmbedder")
-@patch("src.usecases.retrieve_and_generate.GeminiExtractor")
-@patch("src.usecases.retrieve_and_generate.DriveDownloader")
-@patch("src.usecases.retrieve_and_generate.storage.Client")
-def test_retrieve_endpoint_success(
-    MockStorage, MockDownloader, MockExtractor, MockEmbedder,
-    MockResponseGen, MockVectorRepo,
-):
+# Mock dependencies BEFORE importing app to avoid initialization errors
+with patch("src.repositories.storage_repo.GCSStorageRepository"), \
+     patch("src.repositories.document_repo.FirestoreDocumentRepository"), \
+     patch("src.infrastructure.repositories.csv_metadata_repository.CSVMetadataRepository"), \
+     patch("src.filters.embedder.genai.Client"):
     from src.main import app
+
+def test_retrieve_endpoint_success():
     client = TestClient(app)
 
-    response = client.post("/api/v1/retrieve", json={
-        "url": "https://drive.google.com/file/d/FAKE_ID/view",
-        "document_type": "received",
-        "codcomunicadorecibido": "REC-001",
-        "metadata": {
-            "work_front": "Descarga",
-            "document_date": "2025-02-26",
+    with patch("src.main.retrieve_command") as mock_retrieve_command:
+        mock_retrieve_command.execute.return_value = {
+            "pdf_bytes": b"fake-pdf-content",
+            "generated_text": "Response text",
+            "similar_count": 5,
+            "sent_count": 2,
+            "subject": "Test Subject",
+            "gcs_url": "gs://fake-bucket/fake.pdf"
         }
-    })
-    # The endpoint will fail because mocks aren't wired to the singleton
-    # but the schema validation should pass (status != 422)
-    assert response.status_code != 422
 
+        response = client.post("/api/v1/retrieve", json={
+            "codcomunicadorecibido": "REC-001",
+            "iddocumentrecibido": "doc-id-123"
+        })
 
-def test_retrieve_endpoint_invalid_type():
-    from src.main import app
-    client = TestClient(app)
+        assert response.status_code == 200
+        res_data = response.json()
+        assert res_data["status"] == "completed"
+        assert res_data["subject"] == "Test Subject"
+        assert res_data["similar_count"] == 5
+        assert res_data["sent_count"] == 2
+        assert res_data["gcs_url"] == "gs://fake-bucket/fake.pdf"
 
-    response = client.post("/api/v1/retrieve", json={
-        "url": "https://example.com/doc.pdf",
-        "document_type": "sent",
-        "metadata": {
-            "work_front": "C", "document_date": "D",
-        }
-    })
-    assert response.status_code == 400
-
+        # Verify command called with correct snake_case variables
+        mock_retrieve_command.execute.assert_called_once_with(
+            id_documento_recibido="doc-id-123",
+            cod_comunicado_recibido="REC-001"
+        )
 
 def test_retrieve_endpoint_missing_fields():
-    from src.main import app
     client = TestClient(app)
 
-    response = client.post("/api/v1/retrieve", json={
-        "url": "https://example.com/doc.pdf",
-    })
-    assert response.status_code == 422
+    response = client.post("/api/v1/retrieve", json={})
+    assert response.status_code == 400
+    assert "At least one of iddocumentrecibido or codcomunicadorecibido must be provided" in response.json()["detail"]
+
+def test_retrieve_endpoint_value_error_handling():
+    client = TestClient(app)
+
+    with patch("src.main.retrieve_command") as mock_retrieve_command:
+        mock_retrieve_command.execute.side_effect = ValueError("Document not found in DB")
+
+        response = client.post("/api/v1/retrieve", json={
+            "codcomunicadorecibido": "REC-NONEXISTENT"
+        })
+
+        assert response.status_code == 400
+        assert "Document not found in DB" in response.json()["detail"]
