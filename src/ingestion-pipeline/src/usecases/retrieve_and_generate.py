@@ -96,10 +96,12 @@ class RetrieveAndGenerateCommand:
         query_embedding = self._generate_query_embedding(query_text)
 
         # Step 4: Hybrid vector search — filtered by work_front with fallback
+        codcomunicadorecibido = document.metadata.get("codcomunicadorecibido")
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
             query_text=query_text,
             work_front=document.work_front,
+            codcomunicadorecibido=codcomunicadorecibido,
         )
 
         # Step 5: Resolve linked sent documents via draft_id

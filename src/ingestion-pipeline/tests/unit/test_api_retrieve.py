@@ -21,6 +21,7 @@ def test_retrieve_endpoint_success(
     response = client.post("/api/v1/retrieve", json={
         "url": "https://drive.google.com/file/d/FAKE_ID/view",
         "document_type": "received",
+        "codcomunicadorecibido": "REC-001",
         "metadata": {
             "work_front": "Descarga",
             "document_date": "2025-02-26",

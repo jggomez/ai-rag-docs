@@ -52,6 +52,7 @@ class FirestoreVectorSearchRepository:
         query_text: Optional[str] = None,
         limit: int = _VECTOR_SEARCH_CANDIDATE_LIMIT,
         work_front: Optional[str] = None,
+        codcomunicadorecibido: Optional[str] = None,
     ) -> List[dict]:
         """
         Hybrid search: vector similarity + metadata filtering with progressive fallback,
@@ -84,6 +85,53 @@ class FirestoreVectorSearchRepository:
         if not candidate_chunks:
             logger.warning("All search stages exhausted. No similar chunks found.")
             return []
+
+        # In-memory filtering by codcomunicadorecibido if provided
+        if codcomunicadorecibido and candidate_chunks:
+            clean_code = codcomunicadorecibido.strip().lower()
+            code_no_ext = clean_code[:-4] if clean_code.endswith(".pdf") else clean_code
+            code_base = code_no_ext
+            if code_base.endswith("_rec"):
+                code_base = code_base[:-4]
+            elif code_base.endswith("_sen"):
+                code_base = code_base[:-4]
+
+            # Collect matching document IDs to resolve Firestore generated IDs
+            matching_doc_ids = {clean_code, code_no_ext, code_base}
+            try:
+                docs_obj = self.client_received.collection("documentos").where("nombre_objeto", "==", codcomunicadorecibido.strip()).limit(5).get()
+                for doc in docs_obj:
+                    matching_doc_ids.add(doc.id)
+                docs_borr = self.client_received.collection("documentos").where("id_borrador", "==", codcomunicadorecibido.strip()).limit(5).get()
+                for doc in docs_borr:
+                    matching_doc_ids.add(doc.id)
+            except Exception as doc_query_err:
+                logger.warning(f"Error querying documentos to resolve codcomunicadorecibido: {doc_query_err}")
+
+            filtered_candidates = []
+            for chunk in candidate_chunks:
+                id_doc = chunk.get("id_documento")
+                if id_doc and id_doc in matching_doc_ids:
+                    logger.info(f"Excluding chunk {chunk.get('id')} because id_documento={id_doc} matches codcomunicadorecibido.")
+                    continue
+
+                id_borr = chunk.get("id_borrador")
+                if id_borr and str(id_borr).strip().lower() == code_base:
+                    logger.info(f"Excluding chunk {chunk.get('id')} because id_borrador={id_borr} matches draft_id.")
+                    continue
+
+                nombre_archivo = chunk.get("nombre_archivo")
+                if nombre_archivo:
+                    na_clean = str(nombre_archivo).strip().lower()
+                    na_no_ext = na_clean[:-4] if na_clean.endswith(".pdf") else na_clean
+                    if na_no_ext == code_base or na_clean == clean_code:
+                        logger.info(f"Excluding chunk {chunk.get('id')} because nombre_archivo={nombre_archivo} matches file code.")
+                        continue
+
+                filtered_candidates.append(chunk)
+
+            logger.info(f"Filtered candidate chunks by codcomunicadorecibido={codcomunicadorecibido}: {len(candidate_chunks)} -> {len(filtered_candidates)} chunks remaining.")
+            candidate_chunks = filtered_candidates
 
         if query_text:
             return self._rerank_chunks(query_text, candidate_chunks)

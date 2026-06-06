@@ -177,6 +177,35 @@ class TestFindSimilarChunks:
         find_nearest_call = mock_query.find_nearest.call_args
         assert find_nearest_call.kwargs["limit"] == 5
 
+    def test_excludes_matching_codcomunicadorecibido(self, repo, fake_vector):
+        """Chunks matching codcomunicadorecibido are filtered out in-memory."""
+        chunks = [
+            _make_chunk_snapshot({"texto": "Keep this", "id_borrador": "draft_A", "nombre_archivo": "keep.pdf", "id_documento": "doc_keep"}, "chunk_1"),
+            _make_chunk_snapshot({"texto": "Exclude draft", "id_borrador": "76857089", "nombre_archivo": "ex.pdf", "id_documento": "doc_ex"}, "chunk_2"),
+            _make_chunk_snapshot({"texto": "Exclude name", "id_borrador": "draft_C", "nombre_archivo": "REC-001.pdf", "id_documento": "doc_ex2"}, "chunk_3"),
+            _make_chunk_snapshot({"texto": "Exclude doc_id", "id_borrador": "draft_D", "nombre_archivo": "ex3.pdf", "id_documento": "doc_ex_id"}, "chunk_4"),
+        ]
+
+        mock_query = MagicMock()
+        mock_query.find_nearest.return_value.get.return_value = chunks
+        repo.chunks_collection = mock_query
+
+        # Mock collection documents query for matching IDs
+        mock_doc_obj = MagicMock()
+        mock_doc_obj.id = "doc_ex_id"
+        mock_doc_obj.to_dict.return_value = {"nombre_objeto": "REC-001"}
+        repo.client_received.collection.return_value.where.return_value.limit.return_value.get.return_value = [mock_doc_obj]
+
+        # Test case 1: filter by draft_id "76857089"
+        results1 = repo.find_similar_chunks(query_vector=fake_vector, codcomunicadorecibido="76857089")
+        assert len(results1) == 2
+        assert results1[0]["texto"] == "Keep this"
+
+        # Test case 2: filter by nombre_archivo "REC-001"
+        results2 = repo.find_similar_chunks(query_vector=fake_vector, codcomunicadorecibido="REC-001")
+        assert len(results2) == 2
+        assert results2[0]["texto"] == "Keep this"
+
 
 # ---------------------------------------------------------------------------
 # resolve_sent_documents

@@ -81,6 +81,17 @@ class SingleIngestRequest(BaseModel):
     filename: Optional[str] = Field(None, description="Optional custom filename/identifier")
     metadata: IngestRequestMetadata
 
+class IngestReceivedMetadata(BaseModel):
+    draft_id: str
+    document_date: str
+    work_front: str
+    code: str
+    response_file_url: Optional[str] = None
+
+class IngestReceivedRequest(BaseModel):
+    url: str = Field(..., description="The Drive or GCS file URL")
+    metadata: IngestReceivedMetadata
+
 # 1. Dependency injection and wiring
 storage_repo = GCSStorageRepository()
 document_repo = RoutingFirestoreDocumentRepository(
@@ -203,6 +214,9 @@ def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRe
         exclude_none=True
     )
 
+    if hasattr(request, "codcomunicadorecibido") and request.codcomunicadorecibido:
+        extra_meta["codcomunicadorecibido"] = request.codcomunicadorecibido
+
     # Apply symmetric URL cross-mapping
     if doc_type == DocumentType.RECEIVED:
         extra_meta["url_recibido"] = request.url
@@ -233,6 +247,74 @@ def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRe
         work_front=request.metadata.work_front,
         document_date=request.metadata.document_date,
         response_file_url=request.metadata.response_file_url,
+        draft_id=draft_id,
+        metadata=extra_meta
+    )
+
+
+def _build_received_document(request: IngestReceivedRequest) -> SourceDocument:
+    """Build a SourceDocument representing the RECEIVED document from the request."""
+    draft_id = request.metadata.draft_id
+    code = request.metadata.code.strip()
+    
+    filename = f"{code}.pdf"
+    object_name = code
+    
+    extra_meta = {
+        "url_recibido": request.url,
+    }
+    
+    if request.metadata.response_file_url:
+        response_url = request.metadata.response_file_url.strip()
+        if response_url.lower().startswith("http") and "sin" not in response_url.lower():
+            extra_meta["url_enviado"] = response_url
+
+    return SourceDocument(
+        id=f"{draft_id}_REC",
+        filename=filename,
+        bucket="SINGLE_API",
+        object_name=object_name,
+        content_type="application/pdf",
+        size_bytes=0,
+        status=DocumentStatus.PENDING,
+        document_type=DocumentType.RECEIVED,
+        source_url=request.url,
+        work_front=request.metadata.work_front,
+        document_date=request.metadata.document_date,
+        response_file_url=request.metadata.response_file_url,
+        draft_id=draft_id,
+        metadata=extra_meta
+    )
+
+
+def _build_sent_document(request: IngestReceivedRequest) -> SourceDocument:
+    """Build a SourceDocument representing the SENT document from the request."""
+    draft_id = request.metadata.draft_id
+    response_url = request.metadata.response_file_url.strip()
+    
+    clean_url = response_url.split("?")[0]
+    filename = os.path.basename(clean_url) or f"sen-{draft_id}.pdf"
+    if not filename.lower().endswith(".pdf"):
+        filename = f"{filename}.pdf"
+
+    extra_meta = {
+        "url_recibido": request.url,
+        "url_enviado": response_url
+    }
+
+    return SourceDocument(
+        id=f"{draft_id}_SEN",
+        filename=filename,
+        bucket="SINGLE_API",
+        object_name=f"{draft_id}_SEN",
+        content_type="application/pdf",
+        size_bytes=0,
+        status=DocumentStatus.PENDING,
+        document_type=DocumentType.SENT,
+        source_url=response_url,
+        work_front=request.metadata.work_front,
+        document_date=request.metadata.document_date,
+        response_file_url=None,
         draft_id=draft_id,
         metadata=extra_meta
     )
@@ -278,6 +360,59 @@ async def ingest_single_document(request: SingleIngestRequest):
         logger.error(f"Error in single document ingestion: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/v1/ingestdocumentreceived")
+async def ingest_document_received(request: IngestReceivedRequest):
+    """
+    Ingest a single received document.
+    If response_file_url is provided and is a valid URL, also ingests the corresponding sent document.
+    """
+    try:
+        # 1. Process RECEIVED document
+        doc_received = _build_received_document(request)
+        selected_pipeline_rec = pipeline_builder.build_pipeline_for_document(
+            document_type=doc_received.document_type,
+            document_repo=document_repo,
+        )
+        logger.info(f"Ingesting RECEIVED document: {doc_received.filename} (ID: {doc_received.id})")
+        ingest_command._run_pipeline(doc_received, pipeline=selected_pipeline_rec)
+
+        # 2. Process SENT document if valid response_file_url is provided
+        sent_ingested = False
+        sent_doc_id = None
+        response_url = request.metadata.response_file_url
+        
+        if response_url and response_url.strip().lower().startswith("http") and "sin" not in response_url.lower():
+            doc_sent = _build_sent_document(request)
+            selected_pipeline_sen = pipeline_builder.build_pipeline_for_document(
+                document_type=doc_sent.document_type,
+                document_repo=document_repo,
+            )
+            logger.info(f"Ingesting SENT document: {doc_sent.filename} (ID: {doc_sent.id})")
+            ingest_command._run_pipeline(doc_sent, pipeline=selected_pipeline_sen)
+            sent_ingested = True
+            sent_doc_id = doc_sent.id
+
+        return {
+            "status": "completed",
+            "received_document": {
+                "document_id": doc_received.id,
+                "filename": doc_received.filename,
+                "document_type": "received"
+            },
+            "sent_document": {
+                "document_id": sent_doc_id,
+                "status": "completed"
+            } if sent_ingested else None
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in received document ingestion: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # 5. Initialize the retrieve-and-generate command
 retrieve_command = RetrieveAndGenerateCommand(settings, document_repo)
 
@@ -286,6 +421,7 @@ class RetrieveRequest(BaseModel):
     url: str = Field(..., description="URL of the received document to analyze")
     document_type: str = Field(default="received", description="Always 'received'")
     filename: Optional[str] = Field(None, description="Optional custom filename/identifier")
+    codcomunicadorecibido: Optional[str] = Field(None, description="Optional code of received document to exclude")
     metadata: IngestRequestMetadata
 
 
