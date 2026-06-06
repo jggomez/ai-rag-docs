@@ -23,44 +23,49 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
 def setup_telemetry() -> str | None:
     """Configure OpenTelemetry and MLflow tracing based on official ADK integration docs."""
-
-    # 1. Prevent MLflow from overriding the ADK/OTEL provider
-    os.environ["MLFLOW_USE_DEFAULT_TRACER_PROVIDER"] = "false"
-    
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
-    experiment_name = "agent-communications"
-    
-    try:
-        # 2. Configure MLflow Tracking
-        mlflow.set_tracking_uri(tracking_uri)
-        mlflow.set_experiment(experiment_name)
-        exp = mlflow.get_experiment_by_name(experiment_name)
+    if os.environ.get("ENABLE_MLFLOW", "false").lower() == "true":
+        import urllib.request
+        # 1. Prevent MLflow from overriding the ADK/OTEL provider
+        os.environ["MLFLOW_USE_DEFAULT_TRACER_PROVIDER"] = "false"
         
-        if exp:
-            # 3. Configure the OpenTelemetry tracer provider for MLflow OTLP ingestion
-            # Endpoint is the MLflow server's OTLP traces path
-            otlp_endpoint = f"{tracking_uri.rstrip('/')}/v1/traces"
-            
-            # Required env vars for some SDKs, but we set it manually below too
-            os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = otlp_endpoint
-            os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"x-mlflow-experiment-id={exp.experiment_id}"
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
+        experiment_name = "agent-communications"
+        
+        try:
+            # Verify connectivity with a strict 1.0 second timeout
+            try:
+                req = urllib.request.Request(f"{tracking_uri.rstrip('/')}/health", method="GET")
+                with urllib.request.urlopen(req, timeout=1.0) as response:
+                    if response.status == 200:
+                        mlflow.set_tracking_uri(tracking_uri)
+                        mlflow.set_experiment(experiment_name)
+                        exp = mlflow.get_experiment_by_name(experiment_name)
+                        
+                        if exp:
+                            # 3. Configure the OpenTelemetry tracer provider for MLflow OTLP ingestion
+                            otlp_endpoint = f"{tracking_uri.rstrip('/')}/v1/traces"
+                            
+                            # Required env vars for some SDKs
+                            os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = otlp_endpoint
+                            os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"x-mlflow-experiment-id={exp.experiment_id}"
 
-            exporter = OTLPSpanExporter(
-                endpoint=otlp_endpoint,
-                headers={"x-mlflow-experiment-id": exp.experiment_id}
-            )
-            
-            tracer_provider = TracerProvider()
-            tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
-            trace.set_tracer_provider(tracer_provider)
-            
-            # 4. Enable automatic tracing for Google GenAI SDK (Gemini)
-            mlflow.gemini.autolog()
-            
-            logging.info(f"MLflow & ADK OTLP tracing enabled at {otlp_endpoint} [Exp ID: {exp.experiment_id}]")
-
-    except Exception as e:
-        logging.warning(f"Could not initialize MLflow/OTLP telemetry: {e}")
+                            exporter = OTLPSpanExporter(
+                                endpoint=otlp_endpoint,
+                                headers={"x-mlflow-experiment-id": exp.experiment_id}
+                            )
+                            
+                            tracer_provider = TracerProvider()
+                            tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+                            trace.set_tracer_provider(tracer_provider)
+                            
+                            # 4. Enable automatic tracing for Google GenAI SDK (Gemini)
+                            mlflow.gemini.autolog()
+                            
+                            logging.info(f"MLflow & ADK OTLP tracing enabled at {otlp_endpoint} [Exp ID: {exp.experiment_id}]")
+            except Exception as conn_err:
+                logging.warning(f"MLflow server at {tracking_uri} is unreachable ({conn_err}). Skipping telemetry.")
+        except Exception as e:
+            logging.warning(f"Could not initialize MLflow/OTLP telemetry: {e}")
 
     # ADK/GCS Telemetry (Optional logging to bucket)
     bucket = os.environ.get("LOGS_BUCKET_NAME")

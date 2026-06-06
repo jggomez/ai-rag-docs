@@ -61,11 +61,8 @@ def main():
         if has_valid_recibidas:
             print(f" -> Ingesting RECIBIDA: {recibidas_url} (name: {recibidas_name})")
             rec_metadata = {
-                "sender": row.get("Para", "UNKNOWN").strip(),
-                "contract_number": row.get("Contrato", "UNKNOWN").strip(),
                 "work_front": row.get("Frente", "GENERAL").strip(),
                 "document_date": row.get("Fecha", "UNKNOWN").strip(),
-                "process": row.get("Proceso", "INBOX").strip(),
                 "response_file_url": enviadas_url if has_valid_enviadas else (enviadas_name or None),
                 "id_borrador": draft_id
             }
@@ -82,11 +79,8 @@ def main():
         if has_valid_enviadas:
             print(f" -> Ingesting ENVIADA: {enviadas_url} (name: {enviadas_name})")
             sent_metadata = {
-                "sender": row.get("Para", "UNKNOWN").strip(),
-                "contract_number": row.get("Contrato", "UNKNOWN").strip(),
                 "work_front": row.get("Frente", "GENERAL").strip(),
                 "document_date": row.get("Fecha", "UNKNOWN").strip(),
-                "process": row.get("Proceso", "INBOX").strip(),
                 "response_file_url": recibidas_url if has_valid_recibidas else (recibidas_name or None),
                 "id_borrador": draft_id
             }

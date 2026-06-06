@@ -14,9 +14,8 @@ def _make_document(**overrides):
         size_bytes=0, status=DocumentStatus.PENDING,
         document_type=DocumentType.RECEIVED,
         source_url="https://drive.google.com/file/d/FAKE/view",
-        sender="CYS", contract_number="CW-276532",
         work_front="Descarga", document_date="2025-02-26",
-        process="Supervision", draft_id="76857089",
+        draft_id="76857089",
     )
     defaults.update(overrides)
     return SourceDocument(**defaults)
@@ -26,9 +25,9 @@ def _make_document(**overrides):
 def mock_settings():
     s = MagicMock()
     s.gemini_api_key = "fake"
-    s.ocr_model = "gemini-2.0-flash"
+    s.ocr_model = "gemini-3-flash-preview"
     s.embedding_model = "gemini-embedding-2"
-    s.generation_model = "gemini-2.5-flash"
+    s.generation_model = "gemini-3-flash-preview"
     s.firestore_database_received = "docs-recibidos"
     s.firestore_database_sent = "docs-enviados"
     s.gcs_output_bucket = "test-bucket"
@@ -135,11 +134,11 @@ class TestRetrieveAndGenerateCommand:
         with pytest.raises(ValueError, match="no text content"):
             cmd.execute(doc)
 
-    def test_passes_sender_to_vector_search(
+    def test_passes_work_front_to_vector_search(
         self, MockDownloader, MockExtractor, MockEmbedder,
         MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
-        doc = _make_document(sender="ACME Corp")
+        doc = _make_document(work_front="ACME Front")
 
         downloader = MockDownloader.return_value
         def setup_payload(payload):
@@ -170,5 +169,4 @@ class TestRetrieveAndGenerateCommand:
         cmd.execute(doc)
 
         call_kwargs = vector_repo.find_similar_chunks.call_args.kwargs
-        assert call_kwargs["sender"] == "ACME Corp"
-        assert call_kwargs["contract_number"] == "CW-276532"
+        assert call_kwargs["work_front"] == "ACME Front"

@@ -17,24 +17,29 @@ from src.usecases.ingest_document import IngestDocumentCommand
 from src.usecases.retrieve_and_generate import RetrieveAndGenerateCommand
 
 # Configure MLflow Tracing for LLMs
-try:
-    # Force local tracking URI
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
-    mlflow.set_tracking_uri(tracking_uri)
-    
-    # Set or create experiment
-    experiment_name = "ingestion-pipeline"
-    mlflow.set_experiment(experiment_name)
-
-    # Enable automatic tracing for LangChain
-    mlflow.langchain.autolog()
-    # Enable automatic tracing for Google GenAI SDK (Gemini)
-    mlflow.gemini.autolog()
-    
-    logger_mlflow = logging.getLogger("mlflow")
-    logger_mlflow.info(f"MLflow LLM autologging enabled at {tracking_uri} [Exp: {experiment_name}]")
-except Exception as e:
-    print(f"Warning: Could not initialize MLflow autologging: {e}")
+if os.environ.get("ENABLE_MLFLOW", "false").lower() == "true":
+    import urllib.request
+    try:
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
+        # Verify connectivity with a strict 1.0 second timeout
+        try:
+            req = urllib.request.Request(f"{tracking_uri.rstrip('/')}/health", method="GET")
+            with urllib.request.urlopen(req, timeout=1.0) as response:
+                if response.status == 200:
+                    mlflow.set_tracking_uri(tracking_uri)
+                    mlflow.set_experiment("ingestion-pipeline")
+                    mlflow.langchain.autolog()
+                    mlflow.gemini.autolog()
+                    logger_mlflow = logging.getLogger("mlflow")
+                    logger_mlflow.info(f"MLflow LLM autologging enabled at {tracking_uri}")
+                else:
+                    logging.warning(f"MLflow health check returned status {response.status}. Skipping telemetry.")
+        except Exception as conn_err:
+            logging.warning(f"MLflow server at {tracking_uri} is unreachable ({conn_err}). Skipping telemetry.")
+    except Exception as e:
+        logging.warning(f"Could not initialize MLflow autologging: {e}")
+else:
+    logging.info("MLflow telemetry is disabled by default.")
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, settings.log_level.upper()))
@@ -61,11 +66,8 @@ app.add_middleware(
 
 # Pydantic Schemas for single ingest
 class IngestRequestMetadata(BaseModel):
-    sender: str
-    contract_number: str
     work_front: str
     document_date: str
-    process: str
     response_file_url: Optional[str] = None
     id_borrador: Optional[str] = None
     
@@ -197,7 +199,7 @@ def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRe
 
     # Optimize Extra Meta parsing natively in Pydantic O(1)
     extra_meta = request.metadata.model_dump(
-        exclude={"sender", "contract_number", "work_front", "document_date", "process", "response_file_url", "id_borrador"},
+        exclude={"work_front", "document_date", "response_file_url", "id_borrador"},
         exclude_none=True
     )
 
@@ -228,11 +230,8 @@ def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRe
         status=DocumentStatus.PENDING,
         document_type=doc_type,
         source_url=request.url,
-        sender=request.metadata.sender,
-        contract_number=request.metadata.contract_number,
         work_front=request.metadata.work_front,
         document_date=request.metadata.document_date,
-        process=request.metadata.process,
         response_file_url=request.metadata.response_file_url,
         draft_id=draft_id,
         metadata=extra_meta
@@ -311,10 +310,7 @@ async def retrieve_document(request: RetrieveRequest):
         # Add custom tags to MLflow trace for better observability
         if mlflow.active_run():
             mlflow.set_tags({
-                "contract_number": doc.contract_number,
-                "process": doc.process,
                 "work_front": doc.work_front,
-                "sender": doc.sender,
                 "document_type": "rag_retrieval"
             })
 

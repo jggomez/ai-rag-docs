@@ -20,27 +20,14 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         # Remove prefix
         clean_path = obj_name.replace("COMMUNICATION_RECEIVED/", "")
         parts = clean_path.split("/")
+        filename = parts[-1]
         
         # Default metadata if parsing fails
         metadata = {
-            "contract_number": "UNKNOWN",
-            "sender": "UNKNOWN",
             "work_front": "GENERAL",
             "document_date": datetime.utcnow().strftime("%Y-%m-%d"),
-            "process": "INBOX",
         }
         
-        # Example heuristic: if path is contract/sender/file
-        if len(parts) >= 3:
-            metadata["contract_number"] = parts[0]
-            metadata["sender"] = parts[1]
-            filename = parts[-1]
-        elif len(parts) == 2:
-            metadata["contract_number"] = parts[0]
-            filename = parts[1]
-        else:
-            filename = parts[0]
-
         # Try to extract date from filename (supports multiple formats)
         date_patterns = [
             (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),     # 2025-03-11
@@ -61,21 +48,12 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         # We consider "PENDING" or "UNKNOWN" as "not set" for the purpose of heuristic extraction
         def should_update(current_val):
             return current_val in [None, "", "PENDING", "UNKNOWN"]
-
-        if should_update(payload.document.contract_number):
-            payload.document.contract_number = metadata["contract_number"]
-            
-        if should_update(payload.document.sender):
-            payload.document.sender = metadata["sender"]
             
         if should_update(payload.document.work_front):
             payload.document.work_front = metadata["work_front"]
             
         if should_update(payload.document.document_date):
             payload.document.document_date = metadata["document_date"]
-            
-        if should_update(payload.document.process):
-            payload.document.process = metadata["process"]
         
         logger.info(f"Metadata after extraction: {payload.document.model_dump()}")
         return payload

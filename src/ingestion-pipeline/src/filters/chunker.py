@@ -26,8 +26,6 @@ class TextChunker(Filter[ProcessingPayload, ProcessingPayload]):
         
         # Base metadata for all chunks
         base_metadata = {
-            "contract_number": payload.document.contract_number,
-            "sender": payload.document.sender,
             "work_front": payload.document.work_front
         }
         

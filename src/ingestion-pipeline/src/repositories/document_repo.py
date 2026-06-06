@@ -83,13 +83,11 @@ class FirestoreDocumentRepository(DocumentRepository):
         if parent_doc:
             spanish_parent = self._to_spanish_dict(parent_doc)
             spanish_meta = {
-                "remitente": spanish_parent.get("remitente"),
-                "numero_contrato": spanish_parent.get("numero_contrato"),
                 "frente_trabajo": spanish_parent.get("frente_trabajo"),
                 "fecha_documento": spanish_parent.get("fecha_documento"),
-                "proceso": spanish_parent.get("proceso"),
                 "id_borrador": spanish_parent.get("id_borrador"),
                 "nombre_archivo": spanish_parent.get("nombre_archivo"),
+                "url_archivo_respuesta": spanish_parent.get("url_archivo_respuesta"),
             }
             url_origen = spanish_parent.get("url_origen")
             url_recibido = spanish_parent.get("url_recibido")
@@ -108,8 +106,6 @@ class FirestoreDocumentRepository(DocumentRepository):
             flattened_meta = {}
             for k, v in chunk.metadata.items():
                 translated_key = {
-                    "contract_number": "numero_contrato",
-                    "sender": "remitente",
                     "work_front": "frente_trabajo",
                     "chunk_index": "indice_chunk",
                 }.get(k, k)
@@ -134,11 +130,8 @@ class FirestoreDocumentRepository(DocumentRepository):
 
     def _to_spanish_dict(self, document: SourceDocument) -> dict:
         spanish_meta = {
-            "remitente": document.sender,
-            "numero_contrato": document.contract_number,
             "frente_trabajo": document.work_front,
             "fecha_documento": document.document_date,
-            "proceso": document.process,
             "url_archivo_respuesta": document.response_file_url,
             "id_borrador": document.draft_id,
         }
@@ -159,7 +152,7 @@ class FirestoreDocumentRepository(DocumentRepository):
         spanish_data = {
             "id": document.id,
             "nombre_archivo": document.filename,
-            "nombre_objeto": document.object_name,
+            "nombre_objeto": document.object_name[:-4] if document.object_name.lower().endswith(".pdf") else document.object_name,
             "tipo_contenido": document.content_type,
             "tamano_bytes": document.size_bytes,
             "creado_en": document.created_at,
@@ -199,8 +192,8 @@ class FirestoreDocumentRepository(DocumentRepository):
         standard_keys = {
             "id", "nombre_archivo", "nombre_objeto", "tipo_contenido", "tamano_bytes",
             "creado_en", "estado", "tipo_documento", "url_origen", "url_recibido",
-            "remitente", "numero_contrato", "frente_trabajo", "fecha_documento",
-            "proceso", "url_archivo_respuesta", "id_borrador"
+            "frente_trabajo", "fecha_documento",
+            "url_archivo_respuesta", "id_borrador"
         }
 
         metadata = {}
@@ -231,11 +224,8 @@ class FirestoreDocumentRepository(DocumentRepository):
             status=status_en,
             document_type=type_en,
             source_url=spanish_data.get("url_origen"),
-            sender=spanish_data.get("remitente", "UNKNOWN"),
-            contract_number=spanish_data.get("numero_contrato", "UNKNOWN"),
             work_front=spanish_data.get("frente_trabajo", "GENERAL"),
             document_date=spanish_data.get("fecha_documento", "UNKNOWN"),
-            process=spanish_data.get("proceso", "INBOX"),
             response_file_url=spanish_data.get("url_archivo_respuesta"),
             draft_id=spanish_data.get("id_borrador"),
             metadata=metadata,

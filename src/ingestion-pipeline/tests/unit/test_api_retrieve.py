@@ -22,11 +22,8 @@ def test_retrieve_endpoint_success(
         "url": "https://drive.google.com/file/d/FAKE_ID/view",
         "document_type": "received",
         "metadata": {
-            "sender": "CYS",
-            "contract_number": "CW-276532",
             "work_front": "Descarga",
             "document_date": "2025-02-26",
-            "process": "Supervision",
         }
     })
     # The endpoint will fail because mocks aren't wired to the singleton
@@ -42,8 +39,7 @@ def test_retrieve_endpoint_invalid_type():
         "url": "https://example.com/doc.pdf",
         "document_type": "sent",
         "metadata": {
-            "sender": "A", "contract_number": "B",
-            "work_front": "C", "document_date": "D", "process": "E",
+            "work_front": "C", "document_date": "D",
         }
     })
     assert response.status_code == 400

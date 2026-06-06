@@ -81,7 +81,7 @@ its full textual content into three structured fields: `subject`, `body`, and
 - **No conversational filler**: Return ONLY the structured data. No greetings,
   no explanations, no meta-commentary.
 - **Safety & Recitation Avoidance**: To avoid triggering API safety filters and recitation blocks on verbatim text:
-  * Do NOT transcribe long standard boilerplate clauses, legal disclaimers, or generic privacy notices verbatim. Instead, replace them with a brief bracketed summary, e.g., `[Generic legal disclaimer summarized]`.
+  * Do NOT transcribe long standard boilerplate clauses, legal disclaimers, generic privacy notices, or long commercial product technical datasheets/specifications verbatim. Instead, replace them with a brief bracketed summary, e.g., `[Generic legal disclaimer summarized]` or `[Product technical datasheet summarized]`.
   * Focus 100% of your transcription fidelity on the main correspondence body, technical reports, dates, reference codes, specific instructions, names, and tables.
 </constraints>
 """
@@ -98,7 +98,7 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         model_name: Optional[str] = None,
     ):
         resolved_key = api_key or os.environ.get("GEMINI_API_KEY", "")
-        self.model_name = model_name or os.environ.get("GEMINI_OCR_MODEL", "gemini-2.0-flash")
+        self.model_name = model_name or os.environ.get("GEMINI_OCR_MODEL", "gemini-3-flash-preview")
         
         self.client = genai.Client(api_key=resolved_key)
         logger.info(f"GeminiExtractor initialised with model '{self.model_name}' using Structured Output.")
@@ -111,9 +111,8 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         logger.info(f"Extracting structured text via Gemini OCR for {payload.document.filename}")
 
         try:
-            # Prepare parts for the prompt
+            # Prepare parts for the content (excluding the prompt text)
             parts = [
-                types.Part.from_text(text=OCR_EXTRACTION_PROMPT),
                 types.Part.from_bytes(data=payload.content, mime_type=payload.document.content_type)
             ]
 
@@ -122,10 +121,32 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
                 model=self.model_name,
                 contents=parts,
                 config=types.GenerateContentConfig(
+                    system_instruction=OCR_EXTRACTION_PROMPT,
                     response_mime_type="application/json",
                     response_schema=ExtractedContent,
-                    temperature=0.0,
+                    temperature=0.2,
                     max_output_tokens=65536,
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=0
+                    ),
+                    safety_settings=[
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        ),
+                        types.SafetySetting(
+                            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                        ),
+                    ],
                 ),
             )
             
@@ -137,14 +158,32 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
                 not hasattr(extracted_data, "body") or 
                 not hasattr(extracted_data, "visual_tabular_data")):
                 
+                # Check finish reason early
+                finish_reason = "UNKNOWN"
+                if response.candidates and len(response.candidates) > 0:
+                    finish_reason = response.candidates[0].finish_reason
+
+                if finish_reason == types.FinishReason.RECITATION:
+                    logger.warning(
+                        f"Gemini OCR fue bloqueado por los filtros de recitación para {payload.document.filename}. "
+                        "Se registrará el documento en Firestore sin texto extraído y sin generar fragmentos (chunks) como se solicitó."
+                    )
+                    payload.document.metadata["extracted_text"] = ""
+                    payload.document.metadata["document_subject"] = "Bloqueado por Recitación (Ficha Técnica)"
+                    payload.document.metadata["visual_tabular_data"] = ""
+                    payload.document.metadata["recitation_blocked"] = True
+                    payload.document.metadata["recitation_warning"] = (
+                        "El proceso de extracción OCR fue bloqueado por los filtros de recitación/derechos de autor de Gemini "
+                        "(frecuente en fichas técnicas verbatim de productos como Sikafloor)."
+                    )
+                    return payload
+                
                 logger.warning("response.parsed is None or incomplete. Attempting manual parsing from response.text.")
                 
                 # Check for empty/blocked response
                 text = response.text
+                
                 if not text:
-                    finish_reason = "UNKNOWN"
-                    if response.candidates and len(response.candidates) > 0:
-                        finish_reason = response.candidates[0].finish_reason or "UNKNOWN"
                     raise ValueError(f"Gemini returned an empty/blocked response (finish reason: {finish_reason})")
                 
                 text = text.strip()
@@ -155,10 +194,9 @@ class GeminiExtractor(Filter[ProcessingPayload, ProcessingPayload]):
                 try:
                     extracted_data = ExtractedContent.model_validate_json(text)
                 except Exception as json_err:
-                    finish_reason = "UNKNOWN"
-                    if response.candidates and len(response.candidates) > 0:
-                        finish_reason = response.candidates[0].finish_reason or "UNKNOWN"
                     logger.error(f"Failed to parse Gemini response as JSON. Finish reason: {finish_reason}. Text sample: {text[:200]}")
+                    if finish_reason == types.FinishReason.MAX_TOKENS:
+                         raise ValueError(f"Gemini response truncated (MAX_TOKENS). The document might be too long for a single OCR pass.")
                     raise ValueError(f"Failed to parse Gemini response as JSON (finish reason: {finish_reason}): {json_err}")
             
             subject = getattr(extracted_data, "subject", "") or ""

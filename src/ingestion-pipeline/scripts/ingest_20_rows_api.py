@@ -39,13 +39,13 @@ def main():
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    # Get first 10 data rows
-    first_20_rows = rows[:10]
+    # Get first 20 data rows
+    first_20_rows = rows[:20]
     print(f"Processing first {len(first_20_rows)} rows...")
 
     for index, row in enumerate(first_20_rows, start=1):
         draft_id = row.get("Id borradores", "").strip() or f"row-{index}"
-        print(f"\n[{index}/10] Row ID: {draft_id}")
+        print(f"\n[{index}/20] Row ID: {draft_id}")
 
         # Extract/clean URLs and document code names
         recibidas_url = row.get("url Recibidas", "").strip()
@@ -60,11 +60,8 @@ def main():
         if has_valid_recibidas:
             print(f" -> Ingesting RECIBIDA: {recibidas_url} (name: {recibidas_name})")
             rec_metadata = {
-                "sender": row.get("Para", "UNKNOWN").strip(),
-                "contract_number": row.get("Contrato", "UNKNOWN").strip(),
                 "work_front": row.get("Frente", "GENERAL").strip(),
                 "document_date": row.get("Fecha", "UNKNOWN").strip(),
-                "process": row.get("Proceso", "INBOX").strip(),
                 "response_file_url": enviadas_url if has_valid_enviadas else (enviadas_name or None),
                 "id_borrador": draft_id
             }
@@ -81,11 +78,8 @@ def main():
         if has_valid_enviadas:
             print(f" -> Ingesting ENVIADA: {enviadas_url} (name: {enviadas_name})")
             sent_metadata = {
-                "sender": row.get("Para", "UNKNOWN").strip(),
-                "contract_number": row.get("Contrato", "UNKNOWN").strip(),
                 "work_front": row.get("Frente", "GENERAL").strip(),
                 "document_date": row.get("Fecha", "UNKNOWN").strip(),
-                "process": row.get("Proceso", "INBOX").strip(),
                 "response_file_url": recibidas_url if has_valid_recibidas else (recibidas_name or None),
                 "id_borrador": draft_id
             }

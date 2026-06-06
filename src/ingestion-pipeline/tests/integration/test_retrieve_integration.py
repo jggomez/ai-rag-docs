@@ -20,6 +20,8 @@ from src.filters.pdf_generator import PDFResponseGenerator
 # Skip if Firestore is not reachable
 def _firestore_available():
     import os
+    if os.environ.get("RUN_FIRESTORE_TESTS") != "true":
+        return False
     try:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
         client = firestore.Client(database="docs-recibidos", project=project_id)
@@ -55,10 +57,7 @@ class TestVectorSearchIntegration:
         if chunks:
             chunk_data = chunks[0].to_dict()
             self.sample_vector = chunk_data.get("vector", [0.1] * 768)
-            self.sample_contract = chunk_data.get("numero_contrato")
-            self.sample_process = chunk_data.get("proceso")
             self.sample_front = chunk_data.get("frente_trabajo")
-            self.sample_sender = chunk_data.get("remitente")
             self.sample_draft_id = chunk_data.get("id_borrador")
         else:
             pytest.skip("No chunks found in Firestore")
@@ -71,29 +70,26 @@ class TestVectorSearchIntegration:
         assert len(results) > 0
         assert "firestore_id" in results[0]
 
-    def test_hybrid_search_with_contract_filter(self):
-        """Search filtered by contract number should return results."""
-        if not self.sample_contract:
-            pytest.skip("No contract in sample chunk")
+    def test_hybrid_search_with_work_front_filter(self):
+        """Search filtered by work front should return results."""
+        if not self.sample_front:
+            pytest.skip("No work front in sample chunk")
         results = self.repo.find_similar_chunks(
             query_vector=self.sample_vector,
             limit=5,
-            contract_number=self.sample_contract,
+            work_front=self.sample_front,
         )
         assert len(results) > 0
-        # Verify all results have matching contract
+        # Verify all results have matching work front
         for chunk in results:
-            assert chunk.get("numero_contrato") == self.sample_contract
+            assert chunk.get("frente_trabajo") == self.sample_front
 
     def test_hybrid_search_fallback_on_impossible_filter(self):
         """Search with impossible filter combination falls back."""
         results = self.repo.find_similar_chunks(
             query_vector=self.sample_vector,
             limit=5,
-            contract_number="NONEXISTENT-CONTRACT-XYZ",
-            process="NONEXISTENT-PROCESS",
             work_front="NONEXISTENT-FRONT",
-            sender="NONEXISTENT-SENDER",
         )
         # Should fall back to vector_only and still return results
         assert len(results) > 0
@@ -140,10 +136,7 @@ class TestPDFGeneratorIntegration:
 
         chunk = chunks[0].to_dict()
         metadata = {
-            "contract_number": chunk.get("numero_contrato", "N/A"),
-            "sender": chunk.get("remitente", "N/A"),
             "work_front": chunk.get("frente_trabajo", "N/A"),
-            "process": chunk.get("proceso", "N/A"),
             "subject": chunk.get("asunto", "Test"),
         }
 

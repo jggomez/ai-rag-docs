@@ -67,5 +67,4 @@ class TestCSVParser(unittest.TestCase):
         docs = SourceDocumentFactory.create_documents_from_csv_row(row)
         self.assertEqual(len(docs), 2)
         for doc in docs:
-            self.assertEqual(doc.sender, "UNKNOWN")
-            self.assertEqual(doc.contract_number, "UNKNOWN")
+            self.assertEqual(doc.work_front, "Descarga intermedia")

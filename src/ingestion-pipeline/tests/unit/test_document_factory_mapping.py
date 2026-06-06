@@ -19,9 +19,6 @@ class TestDocumentFactoryMapping(unittest.TestCase):
         self.assertEqual(rec_doc.draft_id, "76857089")
         self.assertEqual(rec_doc.document_date, "26/02/2025")
         self.assertEqual(rec_doc.work_front, "Descarga intermedia")
-        self.assertEqual(rec_doc.sender, "UNKNOWN")
-        self.assertEqual(rec_doc.contract_number, "UNKNOWN")
-        self.assertEqual(rec_doc.process, "UNKNOWN")
         self.assertEqual(rec_doc.source_url, "https://drive.google.com/file/d/1/view")
         self.assertEqual(rec_doc.response_file_url, "SENT_01")
 

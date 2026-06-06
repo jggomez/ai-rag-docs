@@ -95,14 +95,11 @@ class RetrieveAndGenerateCommand:
         query_text = f"{received_subject}\n{received_body}"
         query_embedding = self._generate_query_embedding(query_text)
 
-        # Step 4: Hybrid vector search — filtered by contrato, proceso, frente, remitente with fallback
+        # Step 4: Hybrid vector search — filtered by work_front with fallback
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
             query_text=query_text,
-            contract_number=document.contract_number,
-            process=document.process,
             work_front=document.work_front,
-            sender=document.sender,
         )
 
         # Step 5: Resolve linked sent documents via draft_id
@@ -110,11 +107,8 @@ class RetrieveAndGenerateCommand:
 
         # Step 6: Generate response text with Gemini
         metadata_context = {
-            "contract_number": document.contract_number,
-            "sender": document.sender,
             "work_front": document.work_front,
             "document_date": document.document_date,
-            "process": document.process,
             "subject": received_subject,
         }
 
@@ -149,11 +143,8 @@ class RetrieveAndGenerateCommand:
             status=DocumentStatus.COMPLETED,
             document_type=DocumentType.SENT,
             source_url=gcs_url,
-            sender=document.sender,
-            contract_number=document.contract_number,
             work_front=document.work_front,
             document_date=datetime.utcnow().strftime("%Y-%m-%d"),
-            process=document.process,
             draft_id=document.draft_id,
             metadata={
                 "created_by_rag": True,
@@ -207,11 +198,11 @@ class RetrieveAndGenerateCommand:
         bucket_name = self.settings.gcs_output_bucket
         prefix = self.settings.gcs_output_prefix
 
-        # Generate unique filename with contract info and timestamp
+        # Generate unique filename with work front info and timestamp
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        safe_contract = document.contract_number.replace(" ", "_").replace("/", "-")
+        safe_front = document.work_front.replace(" ", "_").replace("/", "-")
         unique_id = uuid.uuid4().hex[:8]
-        blob_name = f"{prefix}/respuesta_{safe_contract}_{timestamp}_{unique_id}.pdf"
+        blob_name = f"{prefix}/respuesta_{safe_front}_{timestamp}_{unique_id}.pdf"
 
         client = storage.Client()
         bucket = client.bucket(bucket_name)

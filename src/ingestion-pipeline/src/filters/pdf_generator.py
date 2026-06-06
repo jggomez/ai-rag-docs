@@ -189,7 +189,7 @@ class PDFResponseGenerator:
 
     def _build_received_table(self, chunks: List[dict], styles: dict) -> list:
         """Renders the received-documents table with one row per chunk."""
-        col_headers = ["#", "Asunto", "Contrato", "Documento", "Relevancia"]
+        col_headers = ["#", "Asunto", "Documento", "Relevancia"]
 
         table_data = [col_headers]
         for idx, chunk in enumerate(chunks, 1):
@@ -198,19 +198,17 @@ class PDFResponseGenerator:
 
             # Truncate long text to keep rows compact
             asunto = self._truncate(chunk.get("asunto", "—"), 80)
-            contrato = chunk.get("numero_contrato", "—")
             documento = chunk.get("nombre_archivo", "—")
 
             table_data.append([
                 str(idx),
                 Paragraph(asunto, styles["table_cell"]),
-                Paragraph(contrato, styles["table_cell"]),
                 Paragraph(documento, styles["table_cell"]),
                 score_cell,
             ])
 
         # Column widths that fit letter page (6.5" usable width)
-        col_widths = [0.3 * inch, 2.8 * inch, 1.2 * inch, 1.5 * inch, 0.7 * inch]
+        col_widths = [0.3 * inch, 3.8 * inch, 1.7 * inch, 0.7 * inch]
 
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(self._received_table_style())
@@ -344,7 +342,7 @@ class PDFResponseGenerator:
             # Index column centred
             ("ALIGN", (0, 1), (0, -1), "CENTER"),
             # Relevancia column centred
-            ("ALIGN", (6, 1), (6, -1), "CENTER"),
+            ("ALIGN", (3, 1), (3, -1), "CENTER"),
             # Grid
             ("GRID", (0, 0), (-1, -1), 0.4, _GREY_BORDER),
             ("LINEBELOW", (0, 0), (-1, 0), 1.5, _BLUE_MID),

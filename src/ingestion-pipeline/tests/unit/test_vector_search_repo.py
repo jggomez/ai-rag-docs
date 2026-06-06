@@ -53,58 +53,30 @@ def _make_chunk_snapshot(data: dict, doc_id: str = "chunk_001"):
 class TestBuildFilterStages:
     """Verify the progressive fallback stage construction."""
 
-    def test_all_four_filters_present(self, repo):
-        stages = repo._build_filter_stages("C-100", "Supervision", "Descarga", "CYS")
+    def test_work_front_present(self, repo):
+        stages = repo._build_filter_stages("Descarga")
         stage_names = [s[0] for s in stages]
         assert stage_names == [
-            "contrato+proceso+frente+remitente",
-            "contrato+proceso+frente",
-            "contrato+proceso",
-            "contrato",
+            "frente_trabajo",
             "vector_only",
         ]
 
-    def test_three_filters_no_sender(self, repo):
-        stages = repo._build_filter_stages("C-100", "Supervision", "Descarga", None)
-        stage_names = [s[0] for s in stages]
-        assert "contrato+proceso+frente+remitente" not in stage_names
-        assert stage_names[0] == "contrato+proceso+frente"
-
-    def test_two_filters_only(self, repo):
-        stages = repo._build_filter_stages("C-100", "Supervision", None, None)
-        stage_names = [s[0] for s in stages]
-        assert stage_names == ["contrato+proceso", "contrato", "vector_only"]
-
-    def test_contract_only(self, repo):
-        stages = repo._build_filter_stages("C-100", None, None, None)
-        stage_names = [s[0] for s in stages]
-        assert stage_names == ["contrato", "vector_only"]
-
     def test_no_filters(self, repo):
-        stages = repo._build_filter_stages(None, None, None, None)
+        stages = repo._build_filter_stages(None)
         assert len(stages) == 1
         assert stages[0][0] == "vector_only"
         assert stages[0][1] == {}
 
     def test_stage_filter_values_are_correct(self, repo):
-        stages = repo._build_filter_stages("CTR-001", "QA", "Front-A", "ACME")
-        # First stage should have all 4 filters
+        stages = repo._build_filter_stages("Front-A")
         _, filters = stages[0]
         assert filters == {
-            "numero_contrato": "CTR-001",
-            "proceso": "QA",
             "frente_trabajo": "Front-A",
-            "remitente": "ACME",
         }
-
-    def test_partial_none_skips_sender_stage(self, repo):
-        """If sender is None but others present, stage 1 is skipped."""
-        stages = repo._build_filter_stages("C", "P", "F", None)
-        assert stages[0][0] == "contrato+proceso+frente"
 
     def test_empty_string_treated_as_falsy(self, repo):
         """Empty strings should be treated like None (no filter)."""
-        stages = repo._build_filter_stages("", "", "", "")
+        stages = repo._build_filter_stages("")
         assert len(stages) == 1
         assert stages[0][0] == "vector_only"
 
@@ -129,10 +101,7 @@ class TestFindSimilarChunks:
 
         results = repo.find_similar_chunks(
             query_vector=fake_vector,
-            contract_number="C-100",
-            process="QA",
             work_front="Front-A",
-            sender="CYS",
         )
 
         assert len(results) == 1
@@ -148,8 +117,8 @@ class TestFindSimilarChunks:
         def mock_get_side_effect():
             nonlocal call_count
             call_count += 1
-            # First 4 calls return empty (stages 1-4), 5th returns results
-            if call_count < 5:
+            # First call returns empty (stage 1), 2nd returns results
+            if call_count < 2:
                 return []
             return [mock_snapshot]
 
@@ -160,15 +129,12 @@ class TestFindSimilarChunks:
 
         results = repo.find_similar_chunks(
             query_vector=fake_vector,
-            contract_number="C-100",
-            process="QA",
             work_front="Front-A",
-            sender="CYS",
         )
 
         assert len(results) == 1
         assert results[0]["firestore_id"] == "fb_001"
-        assert call_count == 5  # All 5 stages tried
+        assert call_count == 2  # All 2 stages tried
 
     def test_returns_empty_when_all_stages_fail(self, repo, fake_vector):
         """If all stages return empty, returns empty list."""
@@ -179,7 +145,7 @@ class TestFindSimilarChunks:
 
         results = repo.find_similar_chunks(
             query_vector=fake_vector,
-            contract_number="C-100",
+            work_front="Front-A",
         )
 
         assert results == []

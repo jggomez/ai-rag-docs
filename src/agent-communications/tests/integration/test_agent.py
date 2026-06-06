@@ -17,7 +17,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from app.agent import app
+from app.agent import root_agent as app
 
 
 def test_agent_stream() -> None:

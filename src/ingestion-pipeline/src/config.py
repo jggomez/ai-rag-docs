@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     
     # Models
     embedding_model: str = "gemini-embedding-2"
-    ocr_model: str = "gemini-3.5-flash"
-    generation_model: str = "gemini-3.5-flash"
+    ocr_model: str = "gemini-3-flash-preview"
+    generation_model: str = "gemini-3-flash-preview"
     
     # Storage
     metadata_csv_path: str = "resources/Comunicaciones_100.csv"

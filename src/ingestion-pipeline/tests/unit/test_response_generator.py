@@ -35,7 +35,7 @@ class TestResponseGenerator:
             received_body="Se presenta el informe mensual...",
             similar_chunks=[{"texto": "Chunk similar", "id_borrador": "123"}],
             sent_texts={"123": {"texto": "Acusamos recibo de su comunicación...", "filename": "SENT-001"}},
-            metadata={"contract_number": "CW-276532", "sender": "CYS"},
+            metadata={"work_front": "Front-A", "document_date": "2024-01-01"},
         )
         assert len(result) > 0
         assert "Estimado" in result
@@ -48,7 +48,7 @@ class TestResponseGenerator:
             received_body="Se adjuntan planos...",
             similar_chunks=[],
             sent_texts={},
-            metadata={"contract_number": "CW-001"},
+            metadata={"work_front": "Front-A"},
         )
         prompt = mock_client.models.generate_content.call_args.kwargs["contents"]
         assert "Planos de taller" in prompt
@@ -61,12 +61,11 @@ class TestResponseGenerator:
             received_body="Body",
             similar_chunks=[],
             sent_texts={},
-            metadata={"contract_number": "CW-276532", "sender": "ACME", "work_front": "Descarga"},
+            metadata={"work_front": "Descarga", "document_date": "2026-06-05"},
         )
         prompt = mock_client.models.generate_content.call_args.kwargs["contents"]
-        assert "CW-276532" in prompt
-        assert "ACME" in prompt
         assert "Descarga" in prompt
+        assert "2026-06-05" in prompt
 
     def test_uses_configured_model(self, generator):
         gen, mock_client = generator

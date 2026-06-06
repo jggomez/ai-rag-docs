@@ -27,11 +27,8 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             size_bytes=100,
             status=DocumentStatus.PENDING,
             document_type=DocumentType.RECEIVED,
-            sender="Sender",
-            contract_number="123",
             work_front="A",
             document_date="2024-01-01",
-            process="P"
         )
         mock_ref = MagicMock()
         mock_ref.id = "generated_firestore_id"
@@ -58,11 +55,8 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             size_bytes=100,
             status=DocumentStatus.COMPLETED,
             document_type=DocumentType.SENT,
-            sender="Sender",
-            contract_number="123",
             work_front="A",
             document_date="2024-01-01",
-            process="P"
         )
         mock_ref = MagicMock()
         self.mock_client.collection.return_value.document.return_value = mock_ref
@@ -138,11 +132,8 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             size_bytes=1000,
             status=DocumentStatus.COMPLETED,
             document_type=DocumentType.RECEIVED,
-            sender="ParentSender",
-            contract_number="C-PARENT",
             work_front="GENERAL",
             document_date="2026-01-01",
-            process="INBOX",
             source_url="https://drive.google.com/view"
         )
         
@@ -162,7 +153,7 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
                     body="Chunk Body",
                     index=0,
                     embedding=[0.1, 0.2, 0.3],
-                    metadata={"chunk_index": 0, "sender": "ParentSender"}
+                    metadata={"chunk_index": 0}
                 )
             ]
 
@@ -176,7 +167,6 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             self.assertEqual(saved_data["id"], "chunk_id_generated")
             self.assertEqual(saved_data["id_documento"], "parent123")
             self.assertEqual(saved_data["texto"], "Chunk Subject\nChunk Body")
-            self.assertEqual(saved_data["remitente"], "ParentSender")
             self.assertEqual(saved_data["url_origen"], "https://drive.google.com/view")
             self.assertTrue(isinstance(saved_data["vector"], Vector))
 
@@ -195,8 +185,8 @@ class TestRoutingFirestoreDocumentRepository(unittest.TestCase):
         doc_rec = SourceDocument(
             id="doc_rec", filename="f.pdf", bucket="b", object_name="obj",
             content_type="pdf", size_bytes=0, status=DocumentStatus.PENDING,
-            document_type=DocumentType.RECEIVED, sender="S", contract_number="C",
-            work_front="W", document_date="2026", process="P"
+            document_type=DocumentType.RECEIVED,
+            work_front="W", document_date="2026"
         )
         with patch.object(self.repo.received_repo, "save_document") as mock_save:
             self.repo.save_document(doc_rec)
@@ -206,8 +196,8 @@ class TestRoutingFirestoreDocumentRepository(unittest.TestCase):
         doc_sen = SourceDocument(
             id="doc_sen", filename="f.pdf", bucket="b", object_name="obj",
             content_type="pdf", size_bytes=0, status=DocumentStatus.PENDING,
-            document_type=DocumentType.SENT, sender="S", contract_number="C",
-            work_front="W", document_date="2026", process="P"
+            document_type=DocumentType.SENT,
+            work_front="W", document_date="2026"
         )
         with patch.object(self.repo.sent_repo, "save_document") as mock_save:
             self.repo.save_document(doc_sen)

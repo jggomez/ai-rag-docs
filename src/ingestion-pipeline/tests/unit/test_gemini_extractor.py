@@ -29,23 +29,20 @@ def test_gemini_extractor_structured_output(mock_client_class):
         size_bytes=100,
         status=DocumentStatus.PROCESSING,
         document_type=DocumentType.RECEIVED,
-        sender="Sender",
-        contract_number="123",
         work_front="A",
         document_date="2024-01-01",
-        process="P"
     )
     
     payload = ProcessingPayload(document=doc, content=b"fake-pdf-content")
     
-    extractor = GeminiExtractor(api_key="fake-key", model_name="gemini-2.0-flash")
+    extractor = GeminiExtractor(api_key="fake-key", model_name="gemini-3-flash-preview")
     result = extractor.process(payload)
     
     # Verify SDK calls
     mock_client.models.generate_content.assert_called_once()
     args, kwargs = mock_client.models.generate_content.call_args
     
-    assert kwargs['model'] == "gemini-2.0-flash"
+    assert kwargs['model'] == "gemini-3-flash-preview"
     assert kwargs['config'].response_schema == ExtractedContent
     
     # Verify metadata updates

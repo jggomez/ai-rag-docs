@@ -5,6 +5,8 @@ from google.cloud import firestore
 
 # Skip if Firestore is not reachable or dummy project active
 def _firestore_available():
+    if os.environ.get("RUN_FIRESTORE_TESTS") != "true":
+        return False
     try:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "devhack-3f0c2")
         if project_id == "dummy-project-id":
@@ -12,7 +14,8 @@ def _firestore_available():
         client = firestore.Client(database="docs-recibidos", project=project_id)
         list(client.collection("documentos_chunks").limit(1).stream())
         return True
-    except Exception:
+    except Exception as exc:
+        print(f"\n[FIRESTORE DIAGNOSTIC] Connection error in test_api.py: {exc}")
         return False
 
 skip_no_firestore = unittest.skipIf(
@@ -48,11 +51,8 @@ class TestRESTAPIIntegration(unittest.TestCase):
             "url": url,
             "document_type": doc_type,
             "metadata": {
-                "sender": "CYS",
-                "contract_number": "Contrato CW 276532",
                 "work_front": "Descarga intermedia",
                 "document_date": "26/02/2025",
-                "process": "Supervisión técnica",
                 "response_file_url": response_url,
                 "custom_project_tag": "Ingenieria-Rest-Test"
             }
@@ -68,11 +68,8 @@ class TestRESTAPIIntegration(unittest.TestCase):
         self.assertEqual(raw_doc["estado"], "COMPLETADO")
 
         # Flat Engineering Metadata
-        self.assertEqual(raw_doc["remitente"], "CYS")
-        self.assertEqual(raw_doc["numero_contrato"], "Contrato CW 276532")
         self.assertEqual(raw_doc["frente_trabajo"], "Descarga intermedia")
         self.assertEqual(raw_doc["fecha_documento"], "26/02/2025")
-        self.assertEqual(raw_doc["proceso"], "Supervisión técnica")
         self.assertEqual(raw_doc["custom_project_tag"], "Ingenieria-Rest-Test")
 
     def test_received_document_creates_cross_urls(self):
@@ -120,8 +117,6 @@ class TestRESTAPIIntegration(unittest.TestCase):
         for chunk in chunks_list:
             self.assertFalse(chunk["id"].endswith("_0") or chunk["id"].endswith("_1"))
             self.assertEqual(chunk["id_documento"], doc_id)
-            self.assertEqual(chunk["remitente"], "CYS")
-            self.assertEqual(chunk["numero_contrato"], "Contrato CW 276532")
             self.assertEqual(chunk["url_recibido"], received_url)
             self.assertIn("indice_chunk", chunk)
 
@@ -166,7 +161,6 @@ class TestRESTAPIIntegration(unittest.TestCase):
         for chunk in chunks_list:
             self.assertFalse(chunk["id"].endswith("_0") or chunk["id"].endswith("_1"))
             self.assertEqual(chunk["id_documento"], doc_id)
-            self.assertEqual(chunk["remitente"], "CYS")
             self.assertEqual(chunk["url_recibido"], received_origin_url)
             self.assertEqual(chunk["url_origen"], sent_url)
             self.assertIn("indice_chunk", chunk)

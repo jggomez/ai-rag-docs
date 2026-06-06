@@ -22,6 +22,7 @@ UI_DIR="${BASE_DIR}/src/ui-ai-comunicados"
 
 PID_DIR="${BASE_DIR}/.pids"
 export MLFLOW_TRACKING_URI="http://localhost:5001"
+export ENABLE_MLFLOW="true"
 
 # Terminal colors
 RED='\033[0;31m'

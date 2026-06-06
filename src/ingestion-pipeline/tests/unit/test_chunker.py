@@ -10,11 +10,8 @@ def test_text_chunker():
         object_name="o",
         content_type="c",
         size_bytes=0,
-        sender="s",
-        contract_number="cn",
         work_front="wf",
         document_date="d",
-        process="p"
     )
     doc.metadata["extracted_text"] = "This is a long text that should be chunked into multiple pieces for testing."
     
@@ -25,4 +22,4 @@ def test_text_chunker():
     assert result.chunks[0].document_id == "doc_123"
     assert result.chunks[0].subject != ""
     assert result.chunks[0].body != ""
-    assert result.chunks[0].metadata["contract_number"] == "cn"
+    assert result.chunks[0].metadata["work_front"] == "wf"

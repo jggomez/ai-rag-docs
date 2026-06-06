@@ -33,11 +33,8 @@ class SourceDocumentFactory:
             size_bytes=size,
             status=DocumentStatus.PENDING,
             document_type=DocumentType.SENT,
-            sender="PENDING",
-            contract_number="PENDING",
             work_front="PENDING",
             document_date="PENDING",
-            process="PENDING",
         )
 
     @staticmethod
@@ -98,11 +95,8 @@ class SourceDocumentFactory:
                 status=DocumentStatus.PENDING,
                 document_type=DocumentType.RECEIVED,
                 source_url=recibidas_url,
-                sender="UNKNOWN",
-                contract_number="UNKNOWN",
                 work_front=work_front,
                 document_date=document_date,
-                process="UNKNOWN",
                 response_file_url=response_file_url,
                 draft_id=draft_id,
             )
@@ -127,11 +121,8 @@ class SourceDocumentFactory:
                 status=DocumentStatus.PENDING,
                 document_type=DocumentType.SENT,
                 source_url=enviadas_url,
-                sender="UNKNOWN",
-                contract_number="UNKNOWN",
                 work_front=work_front,
                 document_date=document_date,
-                process="UNKNOWN",
                 response_file_url=None,
                 draft_id=draft_id,
             )

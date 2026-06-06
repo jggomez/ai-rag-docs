@@ -22,11 +22,8 @@ def _make_received_payload(content: bytes = b"fake-image-bytes") -> ProcessingPa
         object_name="func-test-001",
         content_type="application/pdf",
         size_bytes=len(content),
-        sender="External Corp",
-        contract_number="CTR-FUNC",
         work_front="TESTING",
         document_date="2026-04-01",
-        process="QA",
         document_type=DocumentType.RECEIVED,
         source_url="https://drive.google.com/file/d/FAKE_ID/view",
     )
@@ -63,7 +60,7 @@ class TestLLMOCRLayoutPreservation:
         )
         mock_client.models.generate_content.return_value = mock_response
 
-        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-2.0-flash")
+        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-3-flash-preview")
 
         payload = _make_received_payload()
         result = extractor.process(payload)
@@ -86,7 +83,7 @@ class TestLLMOCRLayoutPreservation:
         )
         mock_client.models.generate_content.return_value = mock_response
 
-        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-2.0-flash")
+        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-3-flash-preview")
 
         payload = _make_received_payload()
         result = extractor.process(payload)
@@ -98,7 +95,7 @@ class TestLLMOCRLayoutPreservation:
     @patch("src.filters.gemini_extractor.genai.Client")
     def test_empty_content_is_noop(self, mock_client_class):
         """If there is no binary content the extractor should return the payload unchanged."""
-        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-2.0-flash")
+        extractor = GeminiExtractor(api_key="test-key", model_name="gemini-3-flash-preview")
 
         payload = _make_received_payload(content=b"")
         payload.content = None

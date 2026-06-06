@@ -2,6 +2,7 @@
 
 import logging
 from typing import List, Dict, Optional
+from datetime import datetime
 
 from google.cloud import firestore
 from google.cloud.firestore_v1.vector import Vector
@@ -37,6 +38,25 @@ _VECTOR_SEARCH_CANDIDATE_LIMIT = 20
 _RERANK_TOP_K = 7
 
 
+def _parse_date(date_str: str) -> Optional[datetime]:
+    """Parses DD/MM/YYYY or YYYY-MM-DD string into a datetime object."""
+    if not date_str or date_str == "UNKNOWN":
+        return None
+    try:
+        if "/" in date_str:
+            parts = date_str.split("/")
+            return datetime(int(parts[2]), int(parts[1]), int(parts[0]))
+        elif "-" in date_str:
+            parts = date_str.split("-")
+            if len(parts) == 3:
+                return datetime(int(parts[0]), int(parts[1]), int(parts[2]))
+            elif len(parts) == 2:
+                return datetime(int(parts[0]), int(parts[1]), 1)
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
 def _rerank_chunks(query: str, candidates: List[dict]) -> List[dict]:
     """Reranks candidate chunks using a cross-encoder (FlashRank)."""
     passages = [
@@ -63,27 +83,25 @@ def _rerank_chunks(query: str, candidates: List[dict]) -> List[dict]:
 
 def search_communications(
     query: str,
-    contract_number: Optional[str] = None,
-    process: Optional[str] = None,
     work_front: Optional[str] = None,
-    sender: Optional[str] = None,
     subject: Optional[str] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
     document_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ) -> str:
     """Searches the documents database and returns the most relevant chunks.
 
     Args:
         query: The query or topic you want to search for in the communications.
-        contract_number: Contract number (e.g., 'CW-276532') if known.
-        process: Process or area (e.g., 'Supervisión técnica') if known.
         work_front: Work front (e.g., 'Descarga intermedia') if known.
-        sender: Sender of the communication if known.
         subject: Specific subject to filter by (e.g., 'Viga') if known.
         month: Month number (1-12) to filter by.
         year: Year (e.g. 2025) to filter by.
         document_id: Specific document ID or code (e.g., 'CYS-CW276532-PHI-03362').
+        start_date: Search start date (format YYYY-MM-DD, e.g., '2025-01-01').
+        end_date: Search end date (format YYYY-MM-DD, e.g., '2025-03-31').
     """
     try:
         # 1. Generate embedding for query
@@ -95,7 +113,7 @@ def search_communications(
         # 2. Search Firestore using hybrid fallback approach
         chunks_collection = _client_received.collection("documentos_chunks")
         stages = _build_filter_stages(
-            contract_number, process, work_front, sender, subject, document_id
+            work_front, subject, document_id
         )
 
         candidate_chunks = []
@@ -123,8 +141,11 @@ def search_communications(
         if not candidate_chunks:
             return "No se encontró información relevante para esta consulta."
 
-        # 3. Post-filtering by month/year and subject (contains) if provided
-        if month or year or subject:
+        # 3. Post-filtering by month/year, range, and subject (contains) if provided
+        if month or year or subject or start_date or end_date:
+            parsed_start = _parse_date(start_date)
+            parsed_end = _parse_date(end_date)
+            
             filtered_candidates = []
             for chunk in candidate_chunks:
                 # Subject filter (case-insensitive contains)
@@ -133,30 +154,26 @@ def search_communications(
                     if subject.lower() not in d_subject:
                         continue
 
-                # Date filter
+                # Parse document date
+                date_str = chunk.get("fecha_documento", "")
+                parsed_doc_date = _parse_date(date_str)
+
+                # Date range filter
+                if start_date or end_date:
+                    if not parsed_doc_date:
+                        continue
+                    if parsed_start and parsed_doc_date < parsed_start:
+                        continue
+                    if parsed_end and parsed_doc_date > parsed_end:
+                        continue
+
+                # Month / Year filter
                 if month or year:
-                    date_str = chunk.get("fecha_documento", "")
-                    try:
-                        if not date_str or date_str == "UNKNOWN":
-                            continue
-
-                        if "/" in date_str:
-                            parts = date_str.split("/")
-                            d_month = int(parts[1])
-                            d_year = int(parts[2])
-                        elif "-" in date_str:
-                            parts = date_str.split("-")
-                            d_year = int(parts[0])
-                            d_month = int(parts[1])
-                        else:
-                            continue
-
-                        match_month = month is None or d_month == month
-                        match_year = year is None or d_year == year
-
-                        if not (match_month and match_year):
-                            continue
-                    except (ValueError, IndexError):
+                    if not parsed_doc_date:
+                        continue
+                    match_month = month is None or parsed_doc_date.month == month
+                    match_year = year is None or parsed_doc_date.year == year
+                    if not (match_month and match_year):
                         continue
 
                 filtered_candidates.append(chunk)
@@ -192,11 +209,9 @@ def search_communications(
             context.append(f"Subject: {chunk.get('asunto', 'N/A')}")
             context.append(f"Document Code: {chunk.get('nombre_archivo', 'N/A')}")
             context.append(f"Date: {chunk.get('fecha_documento', 'N/A')}")
-            context.append(f"Contract: {chunk.get('numero_contrato', 'N/A')} | Process: {chunk.get('proceso', 'N/A')}")
-            context.append(f"Sender: {chunk.get('remitente', 'N/A')} | Work Front: {chunk.get('frente_trabajo', 'N/A')}")
+            context.append(f"Work Front: {chunk.get('frente_trabajo', 'N/A')}")
             context.append(f"Draft ID: {chunk.get('id_borrador', 'N/A')}")
             context.append(f"Extracted text: {chunk.get('texto', 'N/A')}")
-
 
             draft_id = chunk.get("id_borrador")
             if draft_id and draft_id in sent_texts:
@@ -211,73 +226,24 @@ def search_communications(
 
 
 def _build_filter_stages(
-    contract_number: Optional[str],
-    process: Optional[str],
     work_front: Optional[str],
-    sender: Optional[str],
     subject: Optional[str] = None,
     document_id: Optional[str] = None,
 ) -> List[tuple]:
     """Builds an ordered list of (stage_name, filters_dict) from most to least restrictive."""
     stages = []
 
-    def build_filters(**kwargs):
-        return {k: v for k, v in kwargs.items() if v is not None}
-
     if document_id:
         stages.append(("id_only", {"id_documento": document_id}))
         stages.append(("filename_only", {"nombre_archivo": document_id}))
 
     if subject:
-        stages.append(
-            (
-                "subject+metadata",
-                build_filters(
-                    asunto=subject,
-                    numero_contrato=contract_number,
-                    proceso=process,
-                    frente_trabajo=work_front,
-                    remitente=sender,
-                ),
-            )
-        )
+        if work_front:
+            stages.append(("subject+metadata", {"asunto": subject, "frente_trabajo": work_front}))
         stages.append(("subject_only", {"asunto": subject}))
 
-    if contract_number and process and work_front and sender:
-        stages.append(
-            (
-                "contract+process+work_front+sender",
-                {
-                    "numero_contrato": contract_number,
-                    "proceso": process,
-                    "frente_trabajo": work_front,
-                    "remitente": sender,
-                },
-            )
-        )
-
-    if contract_number and process and work_front:
-        stages.append(
-            (
-                "contract+process+work_front",
-                {
-                    "numero_contrato": contract_number,
-                    "proceso": process,
-                    "frente_trabajo": work_front,
-                },
-            )
-        )
-
-    if contract_number and process:
-        stages.append(
-            (
-                "contract+process",
-                {"numero_contrato": contract_number, "proceso": process},
-            )
-        )
-
-    if contract_number:
-        stages.append(("contract", {"numero_contrato": contract_number}))
+    if work_front:
+        stages.append(("work_front", {"frente_trabajo": work_front}))
 
     stages.append(("vector_only", {}))
     return stages

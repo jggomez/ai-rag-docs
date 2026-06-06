@@ -16,11 +16,8 @@ class SourceDocument(BaseModel):
     source_url: Optional[str] = None
 
     # Flattened engineering metadata (previously EngineeringMetadata)
-    sender: str = "UNKNOWN"
-    contract_number: str = "UNKNOWN"
     work_front: str = "GENERAL"
     document_date: str = "UNKNOWN"
-    process: str = "INBOX"
     response_file_url: Optional[str] = None
     draft_id: Optional[str] = None
 

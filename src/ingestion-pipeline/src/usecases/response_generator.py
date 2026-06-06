@@ -29,11 +29,8 @@ body, closing — must be in Spanish.
 </received_document>
 
 <project_metadata>
-- **Contract**: {contract_number}
-- **Original Sender**: {sender}
 - **Work Front**: {work_front}
 - **Document Date**: {document_date}
-- **Process**: {process}
 </project_metadata>
 
 <rag_context>
@@ -49,8 +46,8 @@ body, closing — must be in Spanish.
 2. Mirror the **tone, structure, and phrasing style** of the previously sent
    response letters provided as style reference. If no reference letters are
    available, use a standard formal engineering correspondence style.
-3. Reference the contract number, work front, and any relevant technical details
-   from the received document.
+3. Reference the work front and any relevant technical details from the received
+   document.
 4. The response must be professional, concise, and action-oriented.
 5. Use a clear structure: formal greeting → body addressing the subject → formal
    closing.
@@ -105,11 +102,8 @@ class ResponseGenerator:
         prompt = RESPONSE_GENERATION_PROMPT.format(
             received_subject=received_subject,
             received_body=received_body,
-            contract_number=metadata.get("contract_number", "N/A"),
-            sender=metadata.get("sender", "N/A"),
             work_front=metadata.get("work_front", "N/A"),
             document_date=metadata.get("document_date", "N/A"),
-            process=metadata.get("process", "N/A"),
             similar_chunks_text=similar_chunks_text,
             sent_texts_block=sent_texts_block,
         )

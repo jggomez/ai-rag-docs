@@ -51,10 +51,7 @@ class FirestoreVectorSearchRepository:
         query_vector: List[float],
         query_text: Optional[str] = None,
         limit: int = _VECTOR_SEARCH_CANDIDATE_LIMIT,
-        contract_number: Optional[str] = None,
-        process: Optional[str] = None,
         work_front: Optional[str] = None,
-        sender: Optional[str] = None,
     ) -> List[dict]:
         """
         Hybrid search: vector similarity + metadata filtering with progressive fallback,
@@ -71,7 +68,7 @@ class FirestoreVectorSearchRepository:
         After retrieval, FlashRank reranks the candidates and returns the top
         _RERANK_TOP_K chunks ordered by cross-encoder score.
         """
-        filter_stages = self._build_filter_stages(contract_number, process, work_front, sender)
+        filter_stages = self._build_filter_stages(work_front)
 
         candidate_chunks: List[dict] = []
         for stage_name, filters in filter_stages:
@@ -131,10 +128,7 @@ class FirestoreVectorSearchRepository:
 
     def _build_filter_stages(
         self,
-        contract_number: Optional[str],
-        process: Optional[str],
         work_front: Optional[str],
-        sender: Optional[str],
     ) -> List[tuple]:
         """
         Builds an ordered list of (stage_name, filters_dict) from most to least restrictive.
@@ -142,40 +136,14 @@ class FirestoreVectorSearchRepository:
         """
         stages = []
 
-        # Stage 1: All four filters
-        if contract_number and process and work_front and sender:
+        # Stage 1: Work front
+        if work_front:
             stages.append((
-                "contrato+proceso+frente+remitente",
-                {
-                    "numero_contrato": contract_number,
-                    "proceso": process,
-                    "frente_trabajo": work_front,
-                    "remitente": sender,
-                },
+                "frente_trabajo",
+                {"frente_trabajo": work_front},
             ))
 
-        # Stage 2: Contract + process + work front
-        if contract_number and process and work_front:
-            stages.append((
-                "contrato+proceso+frente",
-                {"numero_contrato": contract_number, "proceso": process, "frente_trabajo": work_front},
-            ))
-
-        # Stage 3: Contract + process
-        if contract_number and process:
-            stages.append((
-                "contrato+proceso",
-                {"numero_contrato": contract_number, "proceso": process},
-            ))
-
-        # Stage 4: Contract only
-        if contract_number:
-            stages.append((
-                "contrato",
-                {"numero_contrato": contract_number},
-            ))
-
-        # Stage 5: Pure vector search (always present as final fallback)
+        # Stage 2: Pure vector search (always present as final fallback)
         stages.append(("vector_only", {}))
 
         return stages

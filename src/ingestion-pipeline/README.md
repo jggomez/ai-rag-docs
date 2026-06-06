@@ -177,26 +177,40 @@ Inicia el procesamiento masivo de todas las filas registradas en el archivo CSV 
 ## Ejecución de Pruebas y Cobertura
 
 ### ⚠️ Evitar Bloqueos de Conexión de MLflow
-El servicio incluye autologging y trazabilidad de LLMs integrado con MLflow. Para evitar que las pruebas se queden colgadas esperando la conexión de red de un servidor remoto de MLflow (timeout HTTP), **debe definir la variable de entorno `MLFLOW_TRACKING_URI` apuntando a una base de datos local** (`sqlite:////tmp/mlflow-test.db`).
+El servicio incluye autologging y trazabilidad de LLMs integrado con MLflow. Para evitar que las pruebas se queden colgadas esperando la conexión de red de un servidor remoto de MLflow (timeout HTTP), el entorno define `ENABLE_MLFLOW=false` en los archivos `.env` de pruebas. También se incluye una verificación de salud resiliente de 1 segundo para evitar esperas y reintentos innecesarios.
 
-### Ejecución de Pruebas Completa (Unitarias e Integración)
-Para ejecutar la suite completa de 120 pruebas (las cuales omiten de forma controlada y segura las pruebas de integración en GCP real si no se cuenta con conexión o credenciales válidas):
+### Script de Pruebas Unificado (`run_tests.sh`)
+Para facilitar la ejecución de pruebas locales de manera rápida e interactiva, se han diseñado scripts automatizados:
+
+* **Pruebas Rápidas (Unitarias y Funcionales)**:
+  Ejecuta solo la suite rápida (omitiendo llamadas reales a GCP Firestore y Gemini):
+  ```bash
+  # Desde la raíz del proyecto
+  ./run_tests.sh
+  ```
+* **Pruebas Completas de Integración (`--all` / `-a`)**:
+  Ejecuta la suite completa de integración, solicitando interactivamente el ID del proyecto de GCP para conectar a las bases de datos reales en Firestore:
+  ```bash
+  # Desde la raíz del proyecto
+  ./run_tests.sh --all
+  ```
+
+### Reporte de Cobertura Completo (85% Cobertura Total)
+Para medir la cobertura de código en las pruebas unitarias y de integración del pipeline:
 
 ```bash
+# Desde la raíz
 cd src/ingestion-pipeline
-MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow-test.db uv run python -m pytest tests/ -v
+export RUN_FIRESTORE_TESTS="true"
+.venv/bin/python -m pytest tests/ --cov=src
 ```
 
-### Reporte de Cobertura (85% Cobertura Total)
-Para medir la cobertura de código en las pruebas unitarias y verificar el comportamiento aislado de los filtros y repositorios:
-
-```bash
-MLFLOW_TRACKING_URI=sqlite:////tmp/mlflow-test.db uv run python -m pytest tests/unit/ --cov=src
-```
-
-Esto generará el reporte de cobertura en terminal, confirmando los siguientes niveles mínimos de cobertura en los módulos críticos:
+Esto generará el reporte de cobertura en terminal, confirmando los siguientes niveles de cobertura en los módulos críticos:
 * `cleaner.py`: **100% Cobertura**
-* `drive_downloader.py`: **94% Cobertura**
+* `pdf_generator.py`: **98% Cobertura**
+* `drive_downloader.py`: **97% Cobertura**
 * `csv_metadata_repository.py`: **96% Cobertura**
 * `embedder.py`: **96% Cobertura**
-* `document_repo.py`: **73% Cobertura**
+* `document_repo.py`: **86% Cobertura** (con aserciones corregidas para tipo de documento y metadatos unificados)
+* `vector_search_repo.py`: **86% Cobertura**
+* `retrieve_and_generate.py`: **88% Cobertura**

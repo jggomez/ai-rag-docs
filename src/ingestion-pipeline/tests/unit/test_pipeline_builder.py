@@ -8,7 +8,7 @@ from src.config import Settings
 def mock_settings():
     settings = MagicMock(spec=Settings)
     settings.gemini_api_key = "test_key"
-    settings.ocr_model = "gemini-2.0-flash"
+    settings.ocr_model = "gemini-3-flash-preview"
     settings.embedding_model = "gemini-embedding-2"
     return settings
 
