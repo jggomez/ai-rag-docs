@@ -5,6 +5,12 @@
 **Status**: Draft  
 **Input**: User description: "en ingestion necesitamos cambiar las api de retrieve, por que esta api reciba el campo de codcomunicadorecibido este campo es Recibidas osea en firestore nombre_objeto, con esto hacer el proceso de retrieve osea buscar docs "chunks" recibidos del RAG pero que no sean del mismo documento y seguir el proceso como esta. Otro endpoint de ingestdocumentreceived donde reciba la url del archivo ademas IngestRequestMetadata `Id borradores`, `Fecha`, `Frente`, `codigo`, `url file`, los parametros en ingles y este endpoit se encarga de guardar el doc y crear los chunks"
 
+## Clarifications
+
+### Session 2026-06-06
+- Q: When a valid response_file_url is provided in the metadata of POST /api/v1/ingestdocumentreceived, how should the system handle the sent document? → A: Fully ingest the sent document: download it, extract text, segment it into chunks, generate embeddings, and save the document and chunk records in the SENT database (matching the CSV batch ingestion behavior).
+- Q: Clarify User Story 1 and POST /api/v1/retrieve flow. → A: The endpoint POST /api/v1/retrieve continues to perform both retrieval and response generation (text + PDF), saving the generated response in the SENT database. The only modification is accepting `codcomunicadorecibido` and using it to exclude chunks of that document during vector search.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - RAG Retrieval Excluding Current Document (Priority: P1)
@@ -17,7 +23,11 @@ As an engineer querying the RAG system to generate a response draft for a receiv
 
 **Acceptance Scenarios**:
 
-1. **Given** a document with code `"REC-001"` is already ingested in the RECEIVED database, **When** a retrieve request is made with `codcomunicadorecibido = "REC-001"`, **Then** the retrieval process returns candidate chunks from other documents but completely excludes any chunks belonging to `"REC-001"`.
+1. **Given** a received document with code `"REC-001"` is already ingested, **When** a retrieve request is made to `POST /api/v1/retrieve` passing `codcomunicadorecibido = "REC-001"`, **Then** the system:
+   - Excludes any chunks belonging to `"REC-001"` from the retrieved RAG context.
+   - Generates the response letter text and PDF utilizing context from other similar documents.
+   - Saves the generated response document under the SENT Firestore database.
+   - Returns the response metadata including the GCS URL of the generated PDF.
 
 ---
 
@@ -27,11 +37,12 @@ As a pipeline user, I want a dedicated API endpoint `POST /api/v1/ingestdocument
 
 **Why this priority**: Required to programmatically ingest individual received documents through a clean, metadata-driven API.
 
-**Independent Test**: Send a POST request to `/api/v1/ingestdocumentreceived` with a file URL and valid metadata, and verify that the document and its vectorized chunks are successfully saved in the RECEIVED Firestore database.
+**Independent Test**: Send a POST request to `/api/v1/ingestdocumentreceived` with a file URL and valid metadata, and verify that the documents and their vectorized chunks are successfully saved in the respective Firestore databases.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid document URL and metadata, **When** the request is sent to `POST /api/v1/ingestdocumentreceived`, **Then** the service downloads the file, processes it using the RECEIVED pipeline strategy (Gemini visual OCR), chunks and vectorizes it, and saves both the document record and chunk records to the RECEIVED Firestore database.
+1. **Given** a valid document URL and metadata containing a valid `response_file_url`, **When** the request is sent to `POST /api/v1/ingestdocumentreceived`, **Then** the service downloads and processes the received document (using the RECEIVED pipeline strategy) AND downloads and processes the sent document (using the SENT pipeline strategy), successfully saving both documents and all their vectorized chunks to their respective Firestore databases.
+2. **Given** a valid document URL and metadata without a `response_file_url`, **When** the request is sent to `POST /api/v1/ingestdocumentreceived`, **Then** it only downloads and processes the received document.
 
 ---
 
@@ -41,7 +52,7 @@ As a pipeline user, I want a dedicated API endpoint `POST /api/v1/ingestdocument
 
 - **FR-001**: The retrieve API endpoint (`POST /api/v1/retrieve`) MUST accept `codcomunicadorecibido` as an optional string parameter in its request payload.
 - **FR-002**: The retrieve API endpoint MUST map `codcomunicadorecibido` to the `nombre_objeto` field of the documents in Firestore.
-- **FR-003**: The retrieval process (`RetrieveAndGenerateCommand`) MUST filter out and exclude all chunks from the search results where the chunk's `nombre_objeto` equals `codcomunicadorecibido`.
+- **FR-003**: The retrieval process (`RetrieveAndGenerateCommand`) MUST filter out and exclude all chunks from the search results where the chunk's `nombre_objeto` equals `codcomunicadorecibido`, while keeping the downstream response generation, GCS upload, and sent database recording intact.
 - **FR-004**: The system MUST expose a new endpoint `POST /api/v1/ingestdocumentreceived` in the ingestion pipeline service.
 - **FR-005**: The request payload for `POST /api/v1/ingestdocumentreceived` MUST use the following English keys in its schema:
   - `url` (String, required): The URL of the document file (Google Drive or GCS).
@@ -56,6 +67,11 @@ As a pipeline user, I want a dedicated API endpoint `POST /api/v1/ingestdocument
   - Use `code` as-is (without `.pdf`) to set the `nombre_objeto` (object name).
   - Save the document under the RECEIVED collection/database.
   - Execute the pipeline strategy for received documents (using `GeminiExtractor` for visual LLM OCR, `TextChunker` for segmentation, and `VectorEmbedder` for embeddings).
+  - If `response_file_url` is provided and is a valid URL, the system MUST also fully ingest the corresponding sent document:
+    - Set the sent document's ID to `{draft_id}_SEN` and type to `sent`.
+    - Download the file from `response_file_url`.
+    - Execute the pipeline strategy for sent documents (extract text, segment into chunks, generate vector embeddings).
+    - Save the sent document metadata and its chunks in the SENT Firestore database.
 
 ### Key Entities
 
