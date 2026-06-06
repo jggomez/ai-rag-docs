@@ -17,13 +17,13 @@ function navigateTo(routeId) {
     if (btn.dataset.route === routeId) {
       btn.classList.add('nav-btn-active');
       btn.classList.remove('nav-btn-inactive');
-      btn.querySelector('svg').classList.add('text-indigo-500');
-      btn.querySelector('svg').classList.remove('text-slate-400');
+      btn.querySelector('svg').classList.add('text-indigo-400');
+      btn.querySelector('svg').classList.remove('text-slate-500');
     } else {
       btn.classList.remove('nav-btn-active');
       btn.classList.add('nav-btn-inactive');
-      btn.querySelector('svg').classList.remove('text-indigo-500');
-      btn.querySelector('svg').classList.add('text-slate-400');
+      btn.querySelector('svg').classList.remove('text-indigo-400');
+      btn.querySelector('svg').classList.add('text-slate-500');
     }
   });
 
