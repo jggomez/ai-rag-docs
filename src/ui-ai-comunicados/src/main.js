@@ -1,9 +1,11 @@
 import { uploadView } from './adapters/ui/uploadView.js';
+import { retrieveView } from './adapters/ui/retrieveView.js';
 import { agentChatView } from './adapters/ui/agentChatView.js';
 
 // Simple SPA Router
 const routes = {
   'upload': uploadView,
+  'retrieve': retrieveView,
   'agent': agentChatView
 };
 

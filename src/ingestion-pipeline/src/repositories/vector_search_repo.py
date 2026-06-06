@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 
 from google.cloud import firestore
 from google.cloud.firestore_v1.vector import Vector
@@ -53,23 +53,28 @@ class FirestoreVectorSearchRepository:
         limit: int = _VECTOR_SEARCH_CANDIDATE_LIMIT,
         work_front: Optional[str] = None,
         codcomunicadorecibido: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> List[dict]:
         """
         Hybrid search: vector similarity + metadata filtering with progressive fallback,
         followed by cross-encoder reranking when query_text is supplied.
 
         Filter priority (most restrictive first):
-          1. contrato + proceso + frente + remitente + vector
-          2. contrato + proceso + frente + vector
-          3. contrato + proceso + vector
-          4. contrato + vector
-          5. vector only (pure semantic search)
+          1. frente_trabajo + fecha_documento range + vector
+          2. frente_trabajo + vector
+          3. fecha_documento range + vector
+          4. vector only (pure semantic search)
 
         If a level returns no results the next less restrictive level is tried.
         After retrieval, FlashRank reranks the candidates and returns the top
         _RERANK_TOP_K chunks ordered by cross-encoder score.
         """
-        filter_stages = self._build_filter_stages(work_front)
+        filter_stages = self._build_filter_stages(
+            work_front=work_front,
+            start_date=start_date,
+            end_date=end_date,
+        )
 
         candidate_chunks: List[dict] = []
         for stage_name, filters in filter_stages:
@@ -177,34 +182,69 @@ class FirestoreVectorSearchRepository:
     def _build_filter_stages(
         self,
         work_front: Optional[str],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> List[tuple]:
         """
-        Builds an ordered list of (stage_name, filters_dict) from most to least restrictive.
+        Builds an ordered list of (stage_name, filters_list) from most to least restrictive.
         Only includes stages where all required filters have values.
         """
         stages = []
 
-        # Stage 1: Work front
-        if work_front:
+        front_cond = ("frente_trabajo", "==", work_front) if work_front else None
+        date_conds = []
+        if start_date:
+            date_conds.append(("fecha_documento", ">=", start_date))
+        if end_date:
+            date_conds.append(("fecha_documento", "<=", end_date))
+
+        # 1. Front + Date Range
+        if front_cond and date_conds:
             stages.append((
-                "frente_trabajo",
-                {"frente_trabajo": work_front},
+                "front_and_date",
+                [front_cond] + date_conds,
             ))
 
-        # Stage 2: Pure vector search (always present as final fallback)
-        stages.append(("vector_only", {}))
+        # 2. Front only
+        if front_cond:
+            stages.append((
+                "frente_trabajo",
+                [front_cond],
+            ))
+
+        # 3. Date range only
+        if date_conds:
+            stages.append((
+                "date_only",
+                date_conds,
+            ))
+
+        # 4. Pure vector search (always present as final fallback)
+        stages.append(("vector_only", []))
 
         return stages
 
     def _execute_vector_search(
-        self, query_vector: List[float], filters: Dict[str, str], limit: int
+        self,
+        query_vector: List[float],
+        filters: Union[Dict[str, str], List[tuple]],
+        limit: int,
     ) -> List[dict]:
         """Executes a vector search with optional pre-filters."""
         query_ref = self.chunks_collection
 
         # Apply metadata pre-filters
-        for field_name, field_value in filters.items():
-            query_ref = query_ref.where(field_name, "==", field_value)
+        if isinstance(filters, dict):
+            for field_name, field_value in filters.items():
+                query_ref = query_ref.where(field_name, "==", field_value)
+        else:
+            for cond in filters:
+                if len(cond) == 3:
+                    field_name, op, field_value = cond
+                    query_ref = query_ref.where(field_name, op, field_value)
+                elif len(cond) == 2:
+                    field_name, field_value = cond
+                    query_ref = query_ref.where(field_name, "==", field_value)
 
         results = (
             query_ref

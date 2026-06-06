@@ -4,7 +4,7 @@ import mlflow
 from typing import Optional, Union
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from src.config import settings
 from src.domain.schemas import GCSEvent
 from src.domain.enums import DocumentStatus, DocumentType
@@ -370,27 +370,33 @@ retrieve_command = RetrieveAndGenerateCommand(settings, document_repo)
 
 
 class RetrieveRequest(BaseModel):
-    codcomunicadorecibido: Optional[str] = None
-    iddocumentrecibido: Optional[str] = None
+    received_communication_code: Optional[str] = Field(default=None, validation_alias=AliasChoices("received_communication_code", "codcomunicadorecibido"))
+    received_document_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("received_document_id", "iddocumentrecibido"))
+    start_date: Optional[str] = Field(default=None, validation_alias=AliasChoices("start_date", "fecha_ini"))
+    end_date: Optional[str] = Field(default=None, validation_alias=AliasChoices("end_date", "fecha_fin"))
+    front: Optional[str] = Field(default=None, validation_alias=AliasChoices("front", "frente"))
 
 
 @app.post("/api/v1/retrieve")
 async def retrieve_document(request: RetrieveRequest):
     """
     RAG Retriever endpoint: looks up an ingested document in Firestore by
-    iddocumentrecibido or codcomunicadorecibido, and runs the RAG pipeline using its content.
+    received_document_id or received_communication_code, and runs the RAG pipeline using its content.
     """
     try:
-        if not request.iddocumentrecibido and not request.codcomunicadorecibido:
+        if not request.received_document_id and not request.received_communication_code:
             raise HTTPException(
                 status_code=400,
-                detail="At least one of iddocumentrecibido or codcomunicadorecibido must be provided"
+                detail="At least one of received_communication_code or received_document_id must be provided"
             )
 
         # Execute the RAG pipeline
         result = retrieve_command.execute(
-            id_documento_recibido=request.iddocumentrecibido,
-            cod_comunicado_recibido=request.codcomunicadorecibido
+            id_documento_recibido=request.received_document_id,
+            cod_comunicado_recibido=request.received_communication_code,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            front=request.front,
         )
 
         # Return RAG metadata as JSON response

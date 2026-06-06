@@ -65,20 +65,44 @@ class TestBuildFilterStages:
         stages = repo._build_filter_stages(None)
         assert len(stages) == 1
         assert stages[0][0] == "vector_only"
-        assert stages[0][1] == {}
+        assert stages[0][1] == []
 
     def test_stage_filter_values_are_correct(self, repo):
         stages = repo._build_filter_stages("Front-A")
         _, filters = stages[0]
-        assert filters == {
-            "frente_trabajo": "Front-A",
-        }
+        assert filters == [
+            ("frente_trabajo", "==", "Front-A"),
+        ]
 
     def test_empty_string_treated_as_falsy(self, repo):
         """Empty strings should be treated like None (no filter)."""
         stages = repo._build_filter_stages("")
         assert len(stages) == 1
         assert stages[0][0] == "vector_only"
+
+    def test_front_and_dates(self, repo):
+        """Verify fallback stages and filters when both front and dates are supplied."""
+        stages = repo._build_filter_stages("Front-A", start_date="2025-01-01", end_date="2025-01-31")
+        stage_names = [s[0] for s in stages]
+        assert stage_names == [
+            "front_and_date",
+            "frente_trabajo",
+            "date_only",
+            "vector_only",
+        ]
+        
+        # Check filters for front_and_date
+        assert stages[0][1] == [
+            ("frente_trabajo", "==", "Front-A"),
+            ("fecha_documento", ">=", "2025-01-01"),
+            ("fecha_documento", "<=", "2025-01-31"),
+        ]
+        
+        # Check filters for date_only
+        assert stages[2][1] == [
+            ("fecha_documento", ">=", "2025-01-01"),
+            ("fecha_documento", "<=", "2025-01-31"),
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +173,30 @@ class TestFindSimilarChunks:
         )
 
         assert results == []
+
+    def test_pre_filters_are_applied_correctly_to_where_clauses(self, repo, fake_vector):
+        """Verifies that .where() is called with the front and date filters on the collection."""
+        mock_query = MagicMock()
+        mock_query.where.return_value = mock_query
+        mock_query.find_nearest.return_value.get.return_value = []
+        repo.chunks_collection = mock_query
+
+        repo.find_similar_chunks(
+            query_vector=fake_vector,
+            work_front="Front-A",
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+        )
+
+        # The first stage tried should be front_and_date.
+        # This will call .where() three times. Let's inspect the call args of mock_query.where
+        calls = mock_query.where.call_args_list
+        assert mock_query.where.call_count >= 3
+        # Check first stage calls: front, start_date, end_date
+        call_args = [c[0] for c in calls[:3]]
+        assert ("frente_trabajo", "==", "Front-A") in call_args
+        assert ("fecha_documento", ">=", "2025-01-01") in call_args
+        assert ("fecha_documento", "<=", "2025-01-31") in call_args
 
     def test_vector_only_search_no_filters(self, repo, fake_vector):
         """With no metadata filters, only vector_only stage runs."""

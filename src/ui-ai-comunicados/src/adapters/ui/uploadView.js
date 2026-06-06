@@ -42,20 +42,23 @@ export function uploadView() {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
           <div class="space-y-1.5">
-            <label class="card-label">Contract Number</label>
-            <input type="text" id="contract" class="input-field" placeholder="e.g. CW-276532">
+            <label class="card-label">ID Borrador</label>
+            <input type="text" id="id_borrador" class="input-field" placeholder="e.g. 76857089" required>
           </div>
           <div class="space-y-1.5">
             <label class="card-label">Work Front</label>
-            <input type="text" id="work_front" class="input-field" placeholder="e.g. Descarga intermedia">
+            <input type="text" id="work_front" class="input-field" placeholder="e.g. Descarga intermedia" required>
           </div>
           <div class="space-y-1.5">
-            <label class="card-label">Process / Category</label>
-            <input type="text" id="process" class="input-field" placeholder="e.g. Supervisión técnica">
+            <label class="card-label">Filename</label>
+            <input type="text" id="filename" class="input-field" placeholder="e.g. CYS-CW276532-PHI-03362.pdf" required>
           </div>
           <div class="space-y-1.5">
-            <label class="card-label">Sender Entity</label>
-            <input type="text" id="sender" class="input-field" placeholder="e.g. Consorcio C&S">
+            <label class="card-label">Document Type</label>
+            <select id="document_type" class="input-field" required>
+              <option value="received" selected>Received</option>
+              <option value="sent">Sent</option>
+            </select>
           </div>
           <div class="space-y-1.5 md:col-span-2">
             <label class="card-label">Document Date</label>
@@ -95,9 +98,14 @@ export function uploadView() {
 
     fileInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
-        fileNameText.textContent = e.target.files[0].name;
+        const selectedName = e.target.files[0].name;
+        fileNameText.textContent = selectedName;
         fileNameDisplay.classList.remove('hidden');
         fileNameDisplay.classList.add('animate-in');
+        const filenameField = document.getElementById('filename');
+        if (filenameField) {
+          filenameField.value = selectedName;
+        }
       }
     });
 
@@ -115,38 +123,32 @@ export function uploadView() {
       
       try {
         const metadata = {
-          sender: document.getElementById('sender').value.trim(),
-          contractNumber: document.getElementById('contract').value.trim(),
           workFront: document.getElementById('work_front').value.trim(),
           documentDate: document.getElementById('doc_date').value.trim(),
-          process: document.getElementById('process').value.trim(),
+          idBorrador: document.getElementById('id_borrador').value.trim(),
+          documentType: document.getElementById('document_type').value,
         };
 
-        const { retrieveResult } = await executeUploadDocument(file, metadata);
-        const responseUrl = formatGcsUrl(retrieveResult.gcs_url);
+        const { ingestResult } = await executeUploadDocument(file, metadata);
 
         const details = `
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
-              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Extracted Subject</span>
-              <p class="font-bold text-slate-900">${retrieveResult.subject || 'N/A'}</p>
+              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Document ID</span>
+              <p class="font-bold text-slate-900">${ingestResult.document_id || 'N/A'}</p>
             </div>
             <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
-              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Similar Contexts</span>
-              <p class="font-bold text-slate-900">${retrieveResult.similar_count || 0} Documents</p>
+              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Status</span>
+              <p class="font-bold text-slate-900">${ingestResult.status || 'N/A'}</p>
+            </div>
+            <div class="p-3 bg-white/50 rounded-lg border border-indigo-100 sm:col-span-2">
+              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Filename</span>
+              <p class="font-bold text-slate-900">${ingestResult.filename || 'N/A'}</p>
             </div>
           </div>
-          ${responseUrl ? `
-            <div class="mt-6">
-              <a href="${responseUrl}" target="_blank" class="inline-flex items-center px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm shadow-md hover:bg-indigo-700 transition-all active:scale-95">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Download AI Response PDF
-              </a>
-            </div>
-          ` : ''}
         `;
 
-        showStatus('success', 'Intelligence Pipeline Complete', details);
+        showStatus('success', 'Ingestion Pipeline Complete', details);
         form.reset();
         fileNameDisplay.classList.add('hidden');
       } catch (error) {

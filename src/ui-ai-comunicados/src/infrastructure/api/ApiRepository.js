@@ -78,6 +78,87 @@ export async function retrieveDocument({ gcsUrl, filename, metadata }) {
 }
 
 /**
+ * Ingest a received document with flat metadata.
+ * @param {object} params
+ * @param {string} params.workFront
+ * @param {string} params.documentDate
+ * @param {string} params.idBorrador
+ * @param {string} params.filename
+ * @param {string} params.documentType
+ * @param {string} params.urlDoc
+ * @returns {Promise<{status: string, document_id: string, filename: string, document_type: string}>}
+ */
+export async function ingestReceivedDocument({
+  workFront,
+  documentDate,
+  idBorrador,
+  filename,
+  documentType,
+  urlDoc,
+}) {
+  const payload = {
+    work_front: workFront,
+    document_date: documentDate || 'UNKNOWN',
+    id_borrador: idBorrador,
+    filename: filename,
+    document_type: documentType,
+    url_doc: urlDoc,
+  };
+
+  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/ingestdocumentreceived`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.detail || `Ingestion failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Trigger RAG retrieve-and-generate search with optional front/date pre-filtering.
+ * @param {object} params
+ * @param {string} [params.receivedCommunicationCode]
+ * @param {string} [params.receivedDocumentId]
+ * @param {string} [params.startDate]
+ * @param {string} [params.endDate]
+ * @param {string} [params.front]
+ * @returns {Promise<{status: string, subject: string, similar_count: number, sent_count: number, gcs_url: string}>}
+ */
+export async function searchAndRetrieveDocument({
+  receivedCommunicationCode,
+  receivedDocumentId,
+  startDate,
+  endDate,
+  front,
+}) {
+  const payload = {
+    received_communication_code: receivedCommunicationCode || null,
+    received_document_id: receivedDocumentId || null,
+    start_date: startDate || null,
+    end_date: endDate || null,
+    front: front || null,
+  };
+
+  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/retrieve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.detail || `Retrieval failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Send a user message to the ADK agent and return the assistant response text.
  *
  * Each chat mount generates a fresh sessionId (UUID) so the agent always

@@ -55,6 +55,9 @@ class RetrieveAndGenerateCommand:
         self,
         id_documento_recibido: Optional[str] = None,
         cod_comunicado_recibido: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        front: Optional[str] = None,
     ) -> dict:
         """
         Executes the complete retrieve-and-generate pipeline using an already ingested document.
@@ -62,13 +65,17 @@ class RetrieveAndGenerateCommand:
         Args:
             id_documento_recibido: Optional ID of the received document to retrieve.
             cod_comunicado_recibido: Optional object/file code of the received document.
+            start_date: Optional start date filter (YYYY-MM-DD)
+            end_date: Optional end date filter (YYYY-MM-DD)
+            front: Optional work front filter
 
         Returns:
             Dict with keys: 'pdf_bytes', 'generated_text', 'similar_count', 'sent_count', 'subject', 'gcs_url'
         """
         logger.info(
             f"Starting RAG retrieval. id_documento_recibido={id_documento_recibido}, "
-            f"cod_comunicado_recibido={cod_comunicado_recibido}"
+            f"cod_comunicado_recibido={cod_comunicado_recibido}, start_date={start_date}, "
+            f"end_date={end_date}, front={front}"
         )
 
         # 1. Retrieve the document from Firestore
@@ -106,8 +113,10 @@ class RetrieveAndGenerateCommand:
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
             query_text=query_text,
-            work_front=document.work_front,
+            work_front=front or document.work_front,
             codcomunicadorecibido=exclusion_code,
+            start_date=start_date,
+            end_date=end_date,
         )
 
         # 5. Resolve linked sent documents via draft_id

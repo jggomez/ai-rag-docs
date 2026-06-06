@@ -36,10 +36,13 @@ def test_retrieve_endpoint_success():
         assert res_data["sent_count"] == 2
         assert res_data["gcs_url"] == "gs://fake-bucket/fake.pdf"
 
-        # Verify command called with correct snake_case variables
+        # Verify command called with correct snake_case variables and defaults
         mock_retrieve_command.execute.assert_called_once_with(
             id_documento_recibido="doc-id-123",
-            cod_comunicado_recibido="REC-001"
+            cod_comunicado_recibido="REC-001",
+            start_date=None,
+            end_date=None,
+            front=None
         )
 
 def test_retrieve_endpoint_missing_fields():
@@ -47,7 +50,7 @@ def test_retrieve_endpoint_missing_fields():
 
     response = client.post("/api/v1/retrieve", json={})
     assert response.status_code == 400
-    assert "At least one of iddocumentrecibido or codcomunicadorecibido must be provided" in response.json()["detail"]
+    assert "At least one of received_communication_code or received_document_id must be provided" in response.json()["detail"]
 
 def test_retrieve_endpoint_value_error_handling():
     client = TestClient(app)
@@ -61,3 +64,35 @@ def test_retrieve_endpoint_value_error_handling():
 
         assert response.status_code == 400
         assert "Document not found in DB" in response.json()["detail"]
+
+def test_retrieve_endpoint_with_new_filters():
+    client = TestClient(app)
+
+    with patch("src.main.retrieve_command") as mock_retrieve_command:
+        mock_retrieve_command.execute.return_value = {
+            "pdf_bytes": b"fake-pdf-content",
+            "generated_text": "Response text",
+            "similar_count": 3,
+            "sent_count": 1,
+            "subject": "Filter Subject",
+            "gcs_url": "gs://fake-bucket/fake.pdf"
+        }
+
+        response = client.post("/api/v1/retrieve", json={
+            "received_communication_code": "REC-002",
+            "received_document_id": "doc-id-456",
+            "start_date": "2025-01-01",
+            "end_date": "2025-01-31",
+            "front": "Descarga"
+        })
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
+        
+        mock_retrieve_command.execute.assert_called_once_with(
+            id_documento_recibido="doc-id-456",
+            cod_comunicado_recibido="REC-002",
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            front="Descarga"
+        )

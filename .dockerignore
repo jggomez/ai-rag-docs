@@ -1,0 +1,16 @@
+.git/
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.log
+.env*
+.specify/
+.agents/
+.pids/
+mlflow.db
+mlartifacts/
+.DS_Store
