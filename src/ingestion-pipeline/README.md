@@ -172,6 +172,53 @@ Inicia el procesamiento masivo de todas las filas registradas en el archivo CSV 
   }
   ```
 
+### POST `/api/v1/ingestdocumentreceived`
+Realiza la ingesta individual de un documento recibido o enviado utilizando una estructura de payload plana (sin objetos anidados).
+* **Cuerpo de la Petición (Payload)**:
+  ```json
+  {
+    "work_front": "Descarga",
+    "document_date": "2026-06-06",
+    "id_borrador": "76857089",
+    "filename": "REC-001.pdf",
+    "document_type": "received",
+    "url_doc": "https://drive.google.com/file/d/.../view"
+  }
+  ```
+* **Respuesta**:
+  ```json
+  {
+    "status": "completed",
+    "received_document": {
+      "document_id": "76857089_REC",
+      "filename": "REC-001.pdf",
+      "document_type": "received"
+    },
+    "sent_document": null
+  }
+  ```
+
+### POST `/api/v1/retrieve`
+Endpoint del recuperador RAG. Recibe el código de comunicado recibido (`codcomunicadorecibido`) y/o el identificador único de Firestore del documento (`iddocumentrecibido`). Recupera el contenido textual directamente desde Firestore para realizar la búsqueda semántica híbrida, la resolución de correspondencias y la generación de la respuesta en PDF sin volver a realizar descargas de Drive ni OCR.
+* **Cuerpo de la Petición (Payload)**:
+  ```json
+  {
+    "codcomunicadorecibido": "REC-001",
+    "iddocumentrecibido": "doc-id-123"
+  }
+  ```
+  *(Nota: Se requiere proveer al menos uno de los dos parámetros)*
+* **Respuesta**:
+  ```json
+  {
+    "status": "completed",
+    "subject": "Asunto del Documento",
+    "similar_count": 5,
+    "sent_count": 2,
+    "gcs_url": "gs://..."
+  }
+  ```
+
 ---
 
 ## Ejecución de Pruebas y Cobertura

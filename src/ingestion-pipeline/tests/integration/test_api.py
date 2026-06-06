@@ -165,5 +165,65 @@ class TestRESTAPIIntegration(unittest.TestCase):
             self.assertEqual(chunk["url_origen"], sent_url)
             self.assertIn("indice_chunk", chunk)
 
+    def test_ingest_received_flat_endpoint(self):
+        """Tests that /api/v1/ingestdocumentreceived with flat payload ingests successfully."""
+        payload = {
+            "work_front": "Descarga intermedia",
+            "document_date": "26/02/2025",
+            "id_borrador": "76857089",
+            "filename": "REC-001.pdf",
+            "document_type": "received",
+            "url_doc": "https://drive.google.com/file/d/1HPlEkEofIcUBbj4bjY60XEDGwdgUAe3U/view?usp=drivesdk"
+        }
+        
+        response = self.client.post("/api/v1/ingestdocumentreceived", json=payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "completed")
+        self.assertEqual(data["received_document"]["filename"], "REC-001.pdf")
+        self.assertEqual(data["received_document"]["document_type"], "received")
+        
+        # Verify it exists in firestore
+        doc_snap = document_repo.received_repo.docs_collection.document("76857089_REC").get()
+        self.assertTrue(doc_snap.exists)
+        raw_rec = doc_snap.to_dict()
+        self.assertEqual(raw_rec["nombre_archivo"], "REC-001.pdf")
+        self.assertEqual(raw_rec["id_borrador"], "76857089")
+
+    def test_retrieve_endpoint_flat_success(self):
+        """Tests RAG retrieve endpoint with flat request."""
+        # First ingest a document manually to Firestore to ensure retrieve doesn't fail
+        from src.domain.entities import SourceDocument
+        from src.domain.enums import DocumentStatus, DocumentType
+        
+        doc = SourceDocument(
+            id="test-retrieve-integration-id",
+            filename="REC-TEST.pdf",
+            bucket="SINGLE_API",
+            object_name="REC-TEST",
+            content_type="application/pdf",
+            size_bytes=0,
+            status=DocumentStatus.COMPLETED,
+            document_type=DocumentType.RECEIVED,
+            source_url="https://example.com/REC-TEST.pdf",
+            work_front="Descarga",
+            document_date="2026-06-06",
+            draft_id="12345678",
+            metadata={
+                "extracted_text": "Extracted text content for RAG retrieval testing.",
+                "document_subject": "Integration Test Subject"
+            }
+        )
+        document_repo.save_document(doc)
+        
+        # Now call retrieve endpoint with iddocumentrecibido
+        response = self.client.post("/api/v1/retrieve", json={
+            "iddocumentrecibido": "test-retrieve-integration-id"
+        })
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "completed")
+        self.assertEqual(data["subject"], "Integration Test Subject")
+
 if __name__ == "__main__":
     unittest.main()
