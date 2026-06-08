@@ -34,12 +34,17 @@ class Settings(BaseSettings):
     firestore_database_sent: str = "docs-enviados"
 
     # GCS Output for generated response PDFs
-    gcs_output_bucket: str = "questionsanswersproject"
-    gcs_output_prefix: str = "documentos_correspondencia/doc_enviados_propuestos"
+    gcs_output_bucket: str = "communications-cys"
+    gcs_output_prefix: str = "COMMUNICATIONS_SENT"
 
-    # GCS Ingestion for uploaded source PDFs
-    gcs_ingestion_bucket: str = "communications-cys"
-    gcs_ingestion_prefix: str = "COMMUNICATION_RECEIVED/"
+    # GCS Ingestion for communications (unifies GCS buckets)
+    gcs_communications_bucket: str = "communications-cys"
+
+    # GCS Ingestion for received communications prefix
+    gcs_received_prefix: str = "COMMUNICATIONS_RECEIVED/"
+
+    # GCS Ingestion for sent communications prefix
+    gcs_sent_prefix: str = "COMMUNICATIONS_SENT/"
 
 # Singleton instance
 settings = Settings()

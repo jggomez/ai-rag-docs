@@ -10,7 +10,7 @@ from googleapiclient.http import MediaIoBaseDownload
 
 from src.filters.base import Filter
 from src.domain.entities import ProcessingPayload
-from src.domain.enums import DocumentStatus
+from src.domain.enums import DocumentStatus, DocumentType
 from src.infrastructure.auth.google_drive import load_drive_credentials
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ class DriveDownloader(Filter[ProcessingPayload, ProcessingPayload]):
         logger.info(f"Attempting public download for Drive file {file_id}...")
         public_payload = self._try_public_download(payload, file_id)
         if public_payload:
-            return public_payload
+            return self._upload_to_gcs_and_update(public_payload)
 
         # Fallback to official API client
         logger.info(f"Public download failed or not accessible for file {file_id}. Falling back to authenticated client...")
@@ -104,7 +104,8 @@ class DriveDownloader(Filter[ProcessingPayload, ProcessingPayload]):
             raise RuntimeError(err_msg)
 
         payload.document.status = DocumentStatus.DOWNLOADING
-        return self._download_with_retries(payload, file_id)
+        result_payload = self._download_with_retries(payload, file_id)
+        return self._upload_to_gcs_and_update(result_payload)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -145,6 +146,85 @@ class DriveDownloader(Filter[ProcessingPayload, ProcessingPayload]):
             payload.document.metadata["error"] = err_msg
             return payload
 
+    def _upload_to_gcs_and_update(self, payload: ProcessingPayload) -> ProcessingPayload:
+        """Upload downloaded content to GCS landing zone and update document properties."""
+        if not payload.content:
+            logger.warning("No content downloaded to upload to GCS.")
+            return payload
+
+        from datetime import datetime
+        from google.cloud import storage
+        from src.config import settings
+
+        bucket_name = settings.gcs_communications_bucket
+
+        # Select prefix based on document type (SENT vs RECEIVED)
+        if payload.document.document_type == DocumentType.SENT:
+            prefix = settings.gcs_sent_prefix
+        else:
+            prefix = settings.gcs_received_prefix
+
+        # Determine yyyy-mm-dd directory name using document_date or current date
+        doc_date = payload.document.document_date
+        # Normalise date if possible (supporting YYYY-MM-DD or DD/MM/YYYY)
+        if doc_date and "/" in doc_date:
+            parts = doc_date.split("/")
+            if len(parts) == 3:
+                # Assuming DD/MM/YYYY -> YYYY-MM-DD
+                date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            else:
+                date_str = datetime.now().strftime("%Y-%m-%d")
+        elif doc_date and len(doc_date) == 10 and doc_date[4] == '-' and doc_date[7] == '-':
+            date_str = doc_date
+        else:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+
+        folder_prefix = f"{prefix}{date_str}/"
+        gcs_filename = payload.document.filename
+        if not gcs_filename.lower().endswith(".pdf"):
+            gcs_filename = f"{gcs_filename}.pdf"
+        # Replace forward slashes to avoid nested folders in GCS
+        gcs_filename = gcs_filename.replace("/", "-")
+        object_name = f"{folder_prefix}{gcs_filename}"
+
+        logger.info(f"Uploading downloaded file {payload.document.filename} to GCS bucket {bucket_name} folder {folder_prefix}...")
+
+        try:
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+
+            # Check if the folder exists (has any files) in GCS flat namespace.
+            # If not, create a 0-byte folder placeholder.
+            blobs = list(bucket.list_blobs(prefix=folder_prefix, max_results=1))
+            if not blobs:
+                logger.info(f"GCS Folder placeholder {folder_prefix} does not exist. Creating...")
+                folder_blob = bucket.blob(folder_prefix)
+                folder_blob.upload_from_string(b"", content_type="application/x-directory")
+            else:
+                logger.info(f"GCS Folder {folder_prefix} already exists.")
+
+            # Save the actual file
+            blob = bucket.blob(object_name)
+            content_type = payload.document.content_type or "application/pdf"
+            blob.upload_from_string(payload.content, content_type=content_type)
+            logger.info(f"Successfully uploaded {payload.document.filename} to GCS: gs://{bucket_name}/{object_name}")
+
+            # Update document to reflect the new GCS location
+            payload.document.bucket = bucket_name
+            payload.document.object_name = object_name
+            
+            gcs_url = f"gs://{bucket_name}/{object_name}"
+            if payload.document.document_type == DocumentType.RECEIVED:
+                payload.document.metadata["url_recibido"] = gcs_url
+            else:
+                payload.document.response_file_url = gcs_url
+            
+        except Exception as e:
+            logger.error(f"Failed to upload document to GCS: {str(e)}")
+            raise e
+
+        return payload
+
 
     def _try_public_download(self, payload: ProcessingPayload, file_id: str) -> Optional[ProcessingPayload]:
         """Try to download a file from Google Drive publicly without authentication."""
@@ -177,15 +257,34 @@ class DriveDownloader(Filter[ProcessingPayload, ProcessingPayload]):
                 content_type = response.headers.get("Content-Type", "application/octet-stream")
                 content_disposition = response.headers.get("Content-Disposition", "")
                 
-                filename = payload.document.filename
+                filename_match = None
+                content_disposition_filename = None
                 if content_disposition:
                     filename_match = re.search(r'filename="([^"]+)"', content_disposition)
                     if filename_match:
-                        filename = filename_match.group(1)
+                        content_disposition_filename = filename_match.group(1)
                 
-                # Force application/pdf if the filename indicates it is a PDF
-                if filename.lower().endswith(".pdf"):
+                filename = None
+                if content_disposition_filename and content_disposition_filename not in ["test.pdf", "document.pdf", "test", "document"]:
+                    filename = content_disposition_filename
+                elif payload.document.filename:
+                    filename = payload.document.filename
+                else:
+                    filename = content_disposition_filename or "document"
+                
+                # Check for PDF extension before stripping it
+                is_pdf = (
+                    filename.lower().endswith(".pdf") or 
+                    (content_disposition_filename and content_disposition_filename.lower().endswith(".pdf")) or
+                    (payload.document.filename and payload.document.filename.lower().endswith(".pdf")) or
+                    content_type == "application/pdf"
+                )
+                if is_pdf:
                     content_type = "application/pdf"
+                
+                # Strip .pdf extension
+                if filename.lower().endswith(".pdf"):
+                    filename = filename[:-4]
                 
                 payload.content = content
                 payload.document.content_type = content_type
@@ -258,8 +357,30 @@ class DriveDownloader(Filter[ProcessingPayload, ProcessingPayload]):
             .execute()
         )
         mime_type = file_metadata.get("mimeType", "application/octet-stream")
+        original_filename = payload.document.filename
+        gdrive_metadata_name = file_metadata.get("name")
+        
+        if gdrive_metadata_name and gdrive_metadata_name not in ["test.pdf", "document.pdf", "test", "document"]:
+            downloaded_filename = gdrive_metadata_name
+        elif original_filename:
+            downloaded_filename = original_filename
+        else:
+            downloaded_filename = gdrive_metadata_name or "document"
+
+        is_pdf = (
+            downloaded_filename.lower().endswith(".pdf") or
+            (original_filename and original_filename.lower().endswith(".pdf")) or
+            mime_type == "application/pdf"
+        )
+        if is_pdf:
+            mime_type = "application/pdf"
+            
         payload.document.content_type = mime_type
-        payload.document.filename = file_metadata.get("name", payload.document.filename)
+
+        if downloaded_filename.lower().endswith(".pdf"):
+            downloaded_filename = downloaded_filename[:-4]
+
+        payload.document.filename = downloaded_filename
         payload.document.size_bytes = int(file_metadata.get("size", 0))
 
         # Download file content

@@ -21,14 +21,22 @@ DB_RECEIVED = os.getenv("DB_RECEIVED", "docs-recibidos")
 DB_SENT = os.getenv("DB_SENT", "docs-enviados")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-2")
 
-# Module-level singletons
+# Module-level singletons (initialized on demand or at startup)
 _client_received = firestore.Client(project=PROJECT_ID, database=DB_RECEIVED)
 _client_sent = firestore.Client(project=PROJECT_ID, database=DB_SENT)
-_genai_client = genai.Client()
 
-# Singleton reranker
+
+def _get_genai_client():
+    """Lazy initialization of the GenAI client."""
+    global _genai_client
+    if "_genai_client" not in globals():
+        _genai_client = genai.Client()
+    return _genai_client
+
+
+# Singleton reranker (using TinyBERT for better cross-platform compatibility)
 _reranker = Ranker(
-    model_name="ms-marco-MiniLM-L-12-v2", cache_dir="/tmp/flashrank_cache"
+    model_name="ms-marco-TinyBERT-L-2-v2", cache_dir="/tmp/flashrank_cache"
 )
 
 # Number of candidates fetched from Firestore before reranking.
@@ -59,26 +67,31 @@ def _parse_date(date_str: str) -> Optional[datetime]:
 
 def _rerank_chunks(query: str, candidates: List[dict]) -> List[dict]:
     """Reranks candidate chunks using a cross-encoder (FlashRank)."""
-    passages = [
-        {"id": idx, "text": chunk.get("texto", "")}
-        for idx, chunk in enumerate(candidates)
-    ]
+    try:
+        passages = [
+            {"id": idx, "text": chunk.get("texto", "")}
+            for idx, chunk in enumerate(candidates)
+        ]
 
-    rerank_request = RerankRequest(query=query, passages=passages)
-    reranked_results = _reranker.rerank(rerank_request)
+        rerank_request = RerankRequest(query=query, passages=passages)
+        reranked_results = _reranker.rerank(rerank_request)
 
-    top_results = reranked_results[:_RERANK_TOP_K]
+        top_results = reranked_results[:_RERANK_TOP_K]
 
-    reranked_chunks: List[dict] = []
-    for result in top_results:
-        original_chunk = candidates[result["id"]]
-        original_chunk["rerank_score"] = result["score"]
-        reranked_chunks.append(original_chunk)
+        reranked_chunks: List[dict] = []
+        for result in top_results:
+            original_chunk = candidates[result["id"]]
+            original_chunk["rerank_score"] = result["score"]
+            reranked_chunks.append(original_chunk)
 
-    logger.info(
-        f"Reranking complete: {len(candidates)} candidates → top {len(reranked_chunks)} returned."
-    )
-    return reranked_chunks
+        logger.info(
+            f"Reranking complete: {len(candidates)} candidates → top {len(reranked_chunks)} returned."
+        )
+        return reranked_chunks
+    except Exception as e:
+        logger.error(f"Reranking failed: {e}. Falling back to vector search order.")
+        # Fallback: just return the top-k from original candidates
+        return candidates[:_RERANK_TOP_K]
 
 
 def search_communications(
@@ -87,7 +100,7 @@ def search_communications(
     subject: Optional[str] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
-    document_id: Optional[str] = None,
+    document_code: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> str:
@@ -99,22 +112,22 @@ def search_communications(
         subject: Specific subject to filter by (e.g., 'Viga') if known.
         month: Month number (1-12) to filter by.
         year: Year (e.g. 2025) to filter by.
-        document_id: Specific document ID or code (e.g., 'CYS-CW276532-PHI-03362').
+        document_code: Specific communication code (e.g., 'CYS-CW276532-PHI-03362').
+                      Corresponds to 'Recibidas' field in the database.
         start_date: Search start date (format YYYY-MM-DD, e.g., '2025-01-01').
         end_date: Search end date (format YYYY-MM-DD, e.g., '2025-03-31').
     """
     try:
         # 1. Generate embedding for query
-        response = _genai_client.models.embed_content(
+        client = _get_genai_client()
+        response = client.models.embed_content(
             model=EMBEDDING_MODEL, contents=query, config={"output_dimensionality": 768}
         )
         query_vector = response.embeddings[0].values
 
         # 2. Search Firestore using hybrid fallback approach
         chunks_collection = _client_received.collection("documentos_chunks")
-        stages = _build_filter_stages(
-            work_front, subject, document_id
-        )
+        stages = _build_filter_stages(work_front, subject, document_code)
 
         candidate_chunks = []
         for stage_name, filters in stages:
@@ -145,7 +158,7 @@ def search_communications(
         if month or year or subject or start_date or end_date:
             parsed_start = _parse_date(start_date)
             parsed_end = _parse_date(end_date)
-            
+
             filtered_candidates = []
             for chunk in candidate_chunks:
                 # Subject filter (case-insensitive contains)
@@ -185,7 +198,7 @@ def search_communications(
         # 4. Rerank candidates
         similar_chunks = _rerank_chunks(query, candidate_chunks)
 
-        # 5. Resolve responses
+        # 5. Resolve responses using id_borrador as the common link between collections
         draft_ids = {
             c.get("id_borrador") for c in similar_chunks if c.get("id_borrador")
         }
@@ -198,25 +211,30 @@ def search_communications(
                 .get()
             )
             for s in sent_results:
-                txt = s.to_dict().get("texto_extraido", "")
+                doc_data = s.to_dict()
+                txt = doc_data.get("texto_extraido", "")
+                code_sent = doc_data.get("nombre_objeto", "N/A")
                 if txt:
-                    sent_texts[draft_id] = txt
+                    sent_texts[draft_id] = {"texto": txt, "code": code_sent}
 
         # 6. Format context
         context = ["### RELEVANT RECEIVED DOCUMENTS FOUND ###"]
         for i, chunk in enumerate(similar_chunks, 1):
             context.append(f"\n--- Document #{i} ---")
             context.append(f"Subject: {chunk.get('asunto', 'N/A')}")
-            context.append(f"Document Code: {chunk.get('nombre_archivo', 'N/A')}")
+            context.append(
+                f"Communication Code (Recibidas): {chunk.get('nombre_objeto', 'N/A')}"
+            )
+            context.append(f"Filename: {chunk.get('nombre_archivo', 'N/A')}")
             context.append(f"Date: {chunk.get('fecha_documento', 'N/A')}")
             context.append(f"Work Front: {chunk.get('frente_trabajo', 'N/A')}")
-            context.append(f"Draft ID: {chunk.get('id_borrador', 'N/A')}")
             context.append(f"Extracted text: {chunk.get('texto', 'N/A')}")
 
             draft_id = chunk.get("id_borrador")
             if draft_id and draft_id in sent_texts:
-                context.append(f"\n*** SENT RESPONSE (Draft ID: {draft_id}) ***")
-                context.append(sent_texts[draft_id][:1500] + "...(truncated)")
+                sent_info = sent_texts[draft_id]
+                context.append(f"\n*** SENT RESPONSE (Code: {sent_info['code']}) ***")
+                context.append(sent_info["texto"][:1500] + "...(truncated)")
 
         return "\n".join(context)
 
@@ -228,18 +246,20 @@ def search_communications(
 def _build_filter_stages(
     work_front: Optional[str],
     subject: Optional[str] = None,
-    document_id: Optional[str] = None,
+    document_code: Optional[str] = None,
 ) -> List[tuple]:
     """Builds an ordered list of (stage_name, filters_dict) from most to least restrictive."""
     stages = []
 
-    if document_id:
-        stages.append(("id_only", {"id_documento": document_id}))
-        stages.append(("filename_only", {"nombre_archivo": document_id}))
+    if document_code:
+        stages.append(("code_only", {"nombre_objeto": document_code}))
+        stages.append(("filename_only", {"nombre_archivo": document_code}))
 
     if subject:
         if work_front:
-            stages.append(("subject+metadata", {"asunto": subject, "frente_trabajo": work_front}))
+            stages.append(
+                ("subject+metadata", {"asunto": subject, "frente_trabajo": work_front})
+            )
         stages.append(("subject_only", {"asunto": subject}))
 
     if work_front:

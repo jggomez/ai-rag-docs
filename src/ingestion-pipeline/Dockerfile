@@ -25,6 +25,9 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy the source code
 COPY . .
 
+# Pre-download the FlashRank model during build time
+RUN .venv/bin/python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-TinyBERT-L-2-v2', cache_dir='/tmp/flashrank_cache_v2')"
+
 # Change ownership of /app to the non-root user
 RUN chown -R appuser:appgroup /app
 

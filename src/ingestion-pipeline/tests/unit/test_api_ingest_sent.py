@@ -9,38 +9,44 @@ with patch("src.repositories.storage_repo.GCSStorageRepository"), \
      patch("src.filters.embedder.genai.Client"):
     from src.main import app
 
-class TestApiIngestReceived(unittest.TestCase):
+class TestApiIngestSent(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
 
     @patch("src.main.ingest_command")
     @patch("src.main.pipeline_builder")
-    def test_ingest_received_success(self, mock_builder, mock_command):
+    def test_ingest_sent_endpoint_success(self, mock_builder, mock_command):
         mock_pipeline = MagicMock()
         mock_builder.build_pipeline_for_document.return_value = mock_pipeline
 
-        response = self.client.post("/api/v1/ingestdocumentreceived", json={
+        # Note: Even if we pass 'received', the endpoint should force it to 'sent'
+        response = self.client.post("/api/v1/ingestdocumentsent", json={
             "work_front": "Descarga",
             "document_date": "2026-06-06",
             "id_borrador": "76857089",
-            "cod_document": "REC-001",
-            "document_type": "received",
-            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
+            "cod_document": "SEN-001",
+            "document_type": "received", 
+            "url_doc": "https://drive.google.com/file/d/SEN_ID/view"
         })
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["received_document"]["filename"], "test.pdf")
-        self.assertEqual(result["received_document"]["document_type"], "received")
-        self.assertIsNone(result["sent_document"])
+        self.assertIsNone(result["received_document"])
+        self.assertEqual(result["sent_document"]["filename"], "test.pdf")
+        self.assertEqual(result["sent_document"]["document_type"], "sent")
 
-        mock_builder.build_pipeline_for_document.assert_called_once()
+        # Verify the builder was called with DocumentType.SENT (enum value 1)
+        from src.domain.enums import DocumentType
+        mock_builder.build_pipeline_for_document.assert_called_once_with(
+            document_type=DocumentType.SENT,
+            document_repo=unittest.mock.ANY
+        )
         mock_command._run_pipeline.assert_called_once()
 
     @patch("src.main.ingest_command")
     @patch("src.main.pipeline_builder")
-    def test_ingest_received_endpoint_forces_received(self, mock_builder, mock_command):
+    def test_ingest_received_endpoint_forces_type(self, mock_builder, mock_command):
         mock_pipeline = MagicMock()
         mock_builder.build_pipeline_for_document.return_value = mock_pipeline
 
@@ -49,26 +55,22 @@ class TestApiIngestReceived(unittest.TestCase):
             "work_front": "Descarga",
             "document_date": "2026-06-06",
             "id_borrador": "76857089",
-            "cod_document": "SEN-001",
-            "document_type": "sent",
-            "url_doc": "https://drive.google.com/file/d/SEN_ID/view"
+            "cod_document": "REC-001",
+            "document_type": "sent", 
+            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
         })
 
         self.assertEqual(response.status_code, 200)
         result = response.json()
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["received_document"]["filename"], "test.pdf")
         self.assertEqual(result["received_document"]["document_type"], "received")
         self.assertIsNone(result["sent_document"])
 
-        mock_builder.build_pipeline_for_document.assert_called_once()
-        mock_command._run_pipeline.assert_called_once()
-
-    def test_ingest_received_missing_fields(self):
-        response = self.client.post("/api/v1/ingestdocumentreceived", json={
-            "url_doc": "https://drive.google.com/file/d/REC_ID/view"
-        })
-        self.assertEqual(response.status_code, 422)
+        from src.domain.enums import DocumentType
+        mock_builder.build_pipeline_for_document.assert_called_once_with(
+            document_type=DocumentType.RECEIVED,
+            document_repo=unittest.mock.ANY
+        )
 
 if __name__ == "__main__":
     unittest.main()

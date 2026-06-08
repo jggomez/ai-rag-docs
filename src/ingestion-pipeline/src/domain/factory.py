@@ -24,6 +24,11 @@ class SourceDocumentFactory:
         # Consistent ID generation
         doc_id = hashlib.md5(f"gs://{bucket}/{name}".encode()).hexdigest()
 
+        # Determine document type based on GCS path
+        from src.config import settings
+        is_sent = name.startswith(settings.gcs_sent_prefix)
+        doc_type = DocumentType.SENT if is_sent else DocumentType.RECEIVED
+
         return SourceDocument(
             id=doc_id,
             filename=os.path.basename(name),
@@ -32,7 +37,7 @@ class SourceDocumentFactory:
             content_type=content_type,
             size_bytes=size,
             status=DocumentStatus.PENDING,
-            document_type=DocumentType.SENT,
+            document_type=doc_type,
             work_front="PENDING",
             document_date="PENDING",
         )
@@ -79,6 +84,8 @@ class SourceDocumentFactory:
         if has_valid_recibidas:
             doc_id_raw = row.get(CSV_COL_RECIBIDAS, "").strip()
             filename = doc_id_raw if doc_id_raw else f"rec-{draft_id}"
+            if filename.lower().endswith(".pdf"):
+                filename = filename[:-4]
             doc_id = f"{draft_id}_REC"
 
             # response file URL mapping
@@ -103,12 +110,15 @@ class SourceDocumentFactory:
 
             doc_received.metadata["url_recibido"] = recibidas_url
             doc_received.metadata["url_enviado"] = enviadas_url if has_valid_enviadas else None
+            doc_received.metadata["codigo_comunicado"] = filename
             documents.append(doc_received)
 
         # 2. SENT Document processing
         if has_valid_enviadas:
             doc_id_raw = row.get(CSV_COL_ENVIADAS, "").strip()
             filename = doc_id_raw if doc_id_raw else f"sen-{draft_id}"
+            if filename.lower().endswith(".pdf"):
+                filename = filename[:-4]
             doc_id = f"{draft_id}_SEN"
 
             doc_sent = SourceDocument(
@@ -129,6 +139,14 @@ class SourceDocumentFactory:
 
             doc_sent.metadata["url_recibido"] = recibidas_url if has_valid_recibidas else None
             doc_sent.metadata["url_enviado"] = enviadas_url
+            
+            # For sent documents, the official code is the 'Enviadas' column.
+            # We use filename as fallback if 'Enviadas' is empty.
+            enviadas_code = row.get(CSV_COL_ENVIADAS, "").strip()
+            if enviadas_code.lower().endswith(".pdf"):
+                enviadas_code = enviadas_code[:-4]
+            
+            doc_sent.metadata["codigo_comunicado"] = enviadas_code if enviadas_code else filename
             documents.append(doc_sent)
 
         return documents

@@ -6,7 +6,7 @@ from google.cloud import storage
 from src.domain.entities import SourceDocument, ProcessingPayload, DocumentChunk
 from src.domain.enums import DocumentStatus, DocumentType
 from src.filters.embedder import VectorEmbedder
-from src.filters.pdf_generator import PDFResponseGenerator
+from src.filters.docx_generator import DocxResponseGenerator
 from src.repositories.vector_search_repo import FirestoreVectorSearchRepository
 from src.usecases.response_generator import ResponseGenerator
 from src.config import Settings
@@ -48,8 +48,8 @@ class RetrieveAndGenerateCommand:
             model_name=settings.generation_model,
         )
 
-        # PDF generator
-        self.pdf_generator = PDFResponseGenerator()
+        # DOCX generator
+        self.docx_generator = DocxResponseGenerator()
 
     def execute(
         self,
@@ -81,7 +81,7 @@ class RetrieveAndGenerateCommand:
         # 1. Retrieve the document from Firestore
         document = None
         if id_documento_recibido:
-            document = self.document_repo.get_document(id_documento_recibido)
+            document = self.document_repo.get_document_by_draft_id(id_documento_recibido)
 
         if not document and cod_comunicado_recibido:
             document = self.document_repo.get_document_by_object_name(cod_comunicado_recibido)
@@ -109,15 +109,15 @@ class RetrieveAndGenerateCommand:
         query_embedding = self._generate_query_embedding(query_text)
 
         # 4. Hybrid vector search — filtered by work_front with fallback, excluding current document
-        exclusion_code = cod_comunicado_recibido or document.object_name
         similar_chunks = self.vector_search_repo.find_similar_chunks(
             query_vector=query_embedding,
             query_text=query_text,
             work_front=front or document.work_front,
-            codcomunicadorecibido=exclusion_code,
             start_date=start_date,
             end_date=end_date,
+            exclude_draft_id=document.draft_id,
         )
+
 
         # 5. Resolve linked sent documents via draft_id
         sent_texts = self.vector_search_repo.resolve_sent_documents(similar_chunks)
@@ -137,53 +137,27 @@ class RetrieveAndGenerateCommand:
             metadata=metadata_context,
         )
 
-        # 7. Generate PDF with the response
-        pdf_bytes = self.pdf_generator.generate_response_pdf(
+        # 7. Generate DOCX with the response
+        docx_bytes = self.docx_generator.generate_response_docx(
             response_text=generated_text,
             metadata=metadata_context,
             similar_chunks=similar_chunks,
             sent_texts=sent_texts,
         )
 
-        # 8. Upload PDF to GCS
-        gcs_url = self._upload_to_gcs(pdf_bytes, document)
+        # 8. Upload DOCX to GCS
+        gcs_url = self._upload_to_gcs(docx_bytes, document)
 
-        # 9. Save the generated response to the database (docs-enviados)
-        sent_document = SourceDocument(
-            id=f"{document.id}_SEN",
-            filename=gcs_url.split('/')[-1],
-            bucket=self.settings.gcs_output_bucket,
-            object_name=gcs_url.split('/')[-1],
-            content_type="application/pdf",
-            size_bytes=len(pdf_bytes),
-            created_at=datetime.utcnow(),
-            status=DocumentStatus.COMPLETED,
-            document_type=DocumentType.SENT,
-            source_url=gcs_url,
-            work_front=document.work_front,
-            document_date=datetime.utcnow().strftime("%Y-%m-%d"),
-            draft_id=document.draft_id,
-            metadata={
-                "created_by_rag": True,
-                "url_recibido": document.source_url,
-                "url_enviado": gcs_url,
-                "extracted_text": generated_text,
-                "document_subject": f"RE: {received_subject}"
-            }
-        )
-
-        if hasattr(self, 'document_repo') and self.document_repo:
-            self.document_repo.save_document(sent_document)
-            logger.info(f"Saved generated response to database with ID: {sent_document.id}")
+        # 9. Firestore persistence skipped per requirement
 
         logger.info(
             f"RAG pipeline complete. Similar chunks: {len(similar_chunks)}, "
-            f"Sent texts resolved: {len(sent_texts)}, PDF size: {len(pdf_bytes)} bytes, "
+            f"Sent texts resolved: {len(sent_texts)}, DOCX size: {len(docx_bytes)} bytes, "
             f"GCS URL: {gcs_url}"
         )
 
         return {
-            "pdf_bytes": pdf_bytes,
+            "docx_bytes": docx_bytes,
             "generated_text": generated_text,
             "similar_count": len(similar_chunks),
             "sent_count": len(sent_texts),
@@ -211,22 +185,30 @@ class RetrieveAndGenerateCommand:
 
         return result.embeddings[0].values
 
-    def _upload_to_gcs(self, pdf_bytes: bytes, document: SourceDocument) -> str:
-        """Uploads the generated PDF to GCS and returns the public URL."""
-        bucket_name = self.settings.gcs_output_bucket
-        prefix = self.settings.gcs_output_prefix
+    def _upload_to_gcs(self, docx_bytes: bytes, document: SourceDocument) -> str:
+        """Uploads the generated DOCX to GCS and returns the public URL."""
+        bucket_name = "communications-cys"
+        prefix = "COMMUNICATIONS_SENT_TMP/"
 
         # Generate unique filename with work front info and timestamp
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        safe_front = document.work_front.replace(" ", "_").replace("/", "-")
-        unique_id = uuid.uuid4().hex[:8]
-        blob_name = f"{prefix}/respuesta_{safe_front}_{timestamp}_{unique_id}.pdf"
+        now = datetime.utcnow()
+        date_folder = now.strftime("%Y-%m-%d")
+        timestamp = now.strftime("%H%M%S")
+        
+        safe_front = (document.work_front or "GENERAL").replace(" ", "_").replace("/", "-")
+        unique_id = uuid.uuid4().hex[:6]
+        
+        # Folder structure: COMMUNICATIONS_SENT_TMP/YYYY-MM-DD/respuesta_FRENTE_TIMESTAMP_ID.docx
+        blob_name = f"{prefix}{date_folder}/respuesta_{safe_front}_{timestamp}_{unique_id}.docx"
 
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
-        blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+        blob.upload_from_string(
+            docx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
         gcs_url = f"gs://{bucket_name}/{blob_name}"
-        logger.info(f"PDF uploaded to GCS: {gcs_url}")
+        logger.info(f"DOCX uploaded to GCS: {gcs_url}")
         return gcs_url

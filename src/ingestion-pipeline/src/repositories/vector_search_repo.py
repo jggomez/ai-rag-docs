@@ -9,8 +9,10 @@ from flashrank import Ranker, RerankRequest
 logger = logging.getLogger(__name__)
 
 # Singleton: loaded once at startup — avoids re-loading the ONNX model per call.
-# ms-marco-MiniLM-L-12-v2 is lightweight (~60 MB) and runs on CPU in ~50 ms.
-_reranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir="/tmp/flashrank_cache")
+# ms-marco-TinyBERT-L-2-v2 is lightweight and offers better cross-platform compatibility.
+_reranker = Ranker(
+    model_name="ms-marco-TinyBERT-L-2-v2", cache_dir="/tmp/flashrank_cache_v2"
+)
 
 # Number of candidates fetched from Firestore before reranking.
 _VECTOR_SEARCH_CANDIDATE_LIMIT = 20
@@ -52,176 +54,91 @@ class FirestoreVectorSearchRepository:
         query_text: Optional[str] = None,
         limit: int = _VECTOR_SEARCH_CANDIDATE_LIMIT,
         work_front: Optional[str] = None,
-        codcomunicadorecibido: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
+        exclude_draft_id: Optional[str] = None,
     ) -> List[dict]:
         """
-        Hybrid search: vector similarity + metadata filtering with progressive fallback,
-        followed by cross-encoder reranking when query_text is supplied.
+        Robust hybrid search with automatic fallback stages:
+          1. work_front + date_range
+          2. work_front only
+          3. date_range only
+          4. vector only (Global)
 
-        Filter priority (most restrictive first):
-          1. frente_trabajo + fecha_documento range + vector
-          2. frente_trabajo + vector
-          3. fecha_documento range + vector
-          4. vector only (pure semantic search)
-
-        If a level returns no results the next less restrictive level is tried.
-        After retrieval, FlashRank reranks the candidates and returns the top
-        _RERANK_TOP_K chunks ordered by cross-encoder score.
+        In each stage, it filters out chunks belonging to 'exclude_draft_id'.
+        If a stage results in 0 chunks, it automatically moves to the next fallback.
         """
-        filter_stages = self._build_filter_stages(
-            work_front=work_front,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        candidate_chunks: List[dict] = []
-        for stage_name, filters in filter_stages:
-            candidate_chunks = self._execute_vector_search(query_vector, filters, limit)
-            if candidate_chunks:
-                logger.info(
-                    f"Hybrid search hit at stage '{stage_name}': "
-                    f"{len(candidate_chunks)} candidates found."
-                )
+        # Build prioritized stages
+        stages = self._build_robust_fallback_stages(work_front, start_date, end_date)
+        
+        final_candidates: List[dict] = []
+        
+        for stage_name, filters in stages:
+            raw_results = self._execute_vector_search(query_vector, filters, limit)
+            
+            if not raw_results:
+                logger.info(f"Stage '{stage_name}' returned 0 raw results, falling back...")
+                continue
+                
+            # Filter results to exclude the source document's chunks
+            filtered = []
+            for chunk in raw_results:
+                chunk_draft_id = str(chunk.get("id_borrador", "")).strip()
+                if exclude_draft_id and chunk_draft_id == str(exclude_draft_id).strip():
+                    logger.debug(f"Excluding chunk from source document draft_id={exclude_draft_id}")
+                    continue
+                filtered.append(chunk)
+                
+            if filtered:
+                logger.info(f"RAG search hit at stage '{stage_name}': {len(filtered)} usable chunks found.")
+                final_candidates = filtered
                 break
-            logger.info(f"Stage '{stage_name}' returned 0 results, falling back...")
+            else:
+                logger.info(f"Stage '{stage_name}' had results but all were excluded. Falling back...")
 
-        if not candidate_chunks:
-            logger.warning("All search stages exhausted. No similar chunks found.")
+        if not final_candidates:
+            logger.warning("RAG fallback chain exhausted. No similar chunks found from other documents.")
             return []
 
-        # In-memory filtering by codcomunicadorecibido if provided
-        if codcomunicadorecibido and candidate_chunks:
-            clean_code = codcomunicadorecibido.strip().lower()
-            code_no_ext = clean_code[:-4] if clean_code.endswith(".pdf") else clean_code
-            code_base = code_no_ext
-            if code_base.endswith("_rec"):
-                code_base = code_base[:-4]
-            elif code_base.endswith("_sen"):
-                code_base = code_base[:-4]
-
-            # Collect matching document IDs to resolve Firestore generated IDs
-            matching_doc_ids = {clean_code, code_no_ext, code_base}
-            try:
-                docs_obj = self.client_received.collection("documentos").where("nombre_objeto", "==", codcomunicadorecibido.strip()).limit(5).get()
-                for doc in docs_obj:
-                    matching_doc_ids.add(doc.id)
-                docs_borr = self.client_received.collection("documentos").where("id_borrador", "==", codcomunicadorecibido.strip()).limit(5).get()
-                for doc in docs_borr:
-                    matching_doc_ids.add(doc.id)
-            except Exception as doc_query_err:
-                logger.warning(f"Error querying documentos to resolve codcomunicadorecibido: {doc_query_err}")
-
-            filtered_candidates = []
-            for chunk in candidate_chunks:
-                id_doc = chunk.get("id_documento")
-                if id_doc and id_doc in matching_doc_ids:
-                    logger.info(f"Excluding chunk {chunk.get('id')} because id_documento={id_doc} matches codcomunicadorecibido.")
-                    continue
-
-                id_borr = chunk.get("id_borrador")
-                if id_borr and str(id_borr).strip().lower() == code_base:
-                    logger.info(f"Excluding chunk {chunk.get('id')} because id_borrador={id_borr} matches draft_id.")
-                    continue
-
-                nombre_archivo = chunk.get("nombre_archivo")
-                if nombre_archivo:
-                    na_clean = str(nombre_archivo).strip().lower()
-                    na_no_ext = na_clean[:-4] if na_clean.endswith(".pdf") else na_clean
-                    if na_no_ext == code_base or na_clean == clean_code:
-                        logger.info(f"Excluding chunk {chunk.get('id')} because nombre_archivo={nombre_archivo} matches file code.")
-                        continue
-
-                filtered_candidates.append(chunk)
-
-            logger.info(f"Filtered candidate chunks by codcomunicadorecibido={codcomunicadorecibido}: {len(candidate_chunks)} -> {len(filtered_candidates)} chunks remaining.")
-            candidate_chunks = filtered_candidates
-
+        # Apply reranking if text was provided
         if query_text:
-            return self._rerank_chunks(query_text, candidate_chunks)
+            return self._rerank_chunks(query_text, final_candidates)
 
-        # No query_text supplied — return raw Firestore ordering (backwards-compatible).
-        return candidate_chunks
+        return final_candidates
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _rerank_chunks(self, query_text: str, candidates: List[dict]) -> List[dict]:
-        """
-        Reranks candidate chunks using a cross-encoder (FlashRank) and returns
-        the top _RERANK_TOP_K results ordered by descending relevance score.
-
-        Each candidate must have a 'texto' field used as the passage text.
-        The original chunk dict is preserved and a 'rerank_score' key is added.
-        """
-        passages = [
-            {"id": idx, "text": chunk.get("texto", "")}
-            for idx, chunk in enumerate(candidates)
-        ]
-
-        rerank_request = RerankRequest(query=query_text, passages=passages)
-        reranked_results = _reranker.rerank(rerank_request)
-
-        # reranked_results is a list of dicts with keys: id, score, text
-        top_results = reranked_results[:_RERANK_TOP_K]
-
-        reranked_chunks: List[dict] = []
-        for result in top_results:
-            original_chunk = candidates[result["id"]]
-            original_chunk["rerank_score"] = result["score"]
-            reranked_chunks.append(original_chunk)
-
-        logger.info(
-            f"Reranking complete: {len(candidates)} candidates → top {len(reranked_chunks)} "
-            f"returned. Top score: {top_results[0]['score']:.4f}"
-        )
-        return reranked_chunks
-
-    def _build_filter_stages(
+    def _build_robust_fallback_stages(
         self,
         work_front: Optional[str],
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
     ) -> List[tuple]:
         """
-        Builds an ordered list of (stage_name, filters_list) from most to least restrictive.
-        Only includes stages where all required filters have values.
+        Builds the ordered fallback stages for robust retrieval.
         """
         stages = []
-
         front_cond = ("frente_trabajo", "==", work_front) if work_front else None
+        
         date_conds = []
         if start_date:
             date_conds.append(("fecha_documento", ">=", start_date))
         if end_date:
             date_conds.append(("fecha_documento", "<=", end_date))
 
-        # 1. Front + Date Range
+        # 1. Front + Dates
         if front_cond and date_conds:
-            stages.append((
-                "front_and_date",
-                [front_cond] + date_conds,
-            ))
+            stages.append(("front_and_date", [front_cond] + date_conds))
 
-        # 2. Front only
+        # 2. Front Only
         if front_cond:
-            stages.append((
-                "frente_trabajo",
-                [front_cond],
-            ))
+            stages.append(("front_only", [front_cond]))
 
-        # 3. Date range only
+        # 3. Dates Only
         if date_conds:
-            stages.append((
-                "date_only",
-                date_conds,
-            ))
+            stages.append(("date_only", date_conds))
 
-        # 4. Pure vector search (always present as final fallback)
-        stages.append(("vector_only", []))
-
+        # 4. Global fallback
+        stages.append(("global_vector", []))
+        
         return stages
 
     def _execute_vector_search(
@@ -308,3 +225,39 @@ class FirestoreVectorSearchRepository:
 
         logger.info(f"Resolved {len(sent_metadata)} sent document records out of {len(draft_ids)} draft IDs.")
         return sent_metadata
+
+    def _rerank_chunks(self, query_text: str, candidates: List[dict]) -> List[dict]:
+        """
+        Reranks candidate chunks using a cross-encoder (FlashRank) and returns
+        the top _RERANK_TOP_K results ordered by descending relevance score.
+
+        Each candidate must have a 'texto' field used as the passage text.
+        The original chunk dict is preserved and a 'rerank_score' key is added.
+        """
+        try:
+            passages = [
+                {"id": idx, "text": chunk.get("texto", "")}
+                for idx, chunk in enumerate(candidates)
+            ]
+
+            rerank_request = RerankRequest(query=query_text, passages=passages)
+            reranked_results = _reranker.rerank(rerank_request)
+
+            # reranked_results is a list of dicts with keys: id, score, text
+            top_results = reranked_results[:_RERANK_TOP_K]
+
+            reranked_chunks: List[dict] = []
+            for result in top_results:
+                original_chunk = candidates[result["id"]]
+                original_chunk["rerank_score"] = result["score"]
+                reranked_chunks.append(original_chunk)
+
+            logger.info(
+                f"Reranking complete: {len(candidates)} candidates → top {len(reranked_chunks)} "
+                f"returned. Top score: {top_results[0]['score']:.4f}"
+            )
+            return reranked_chunks
+        except Exception as e:
+            logger.error(f"Reranking failed: {e}. Falling back to vector search order.")
+            # Fallback: just return the top-k from original candidates
+            return candidates[:_RERANK_TOP_K]

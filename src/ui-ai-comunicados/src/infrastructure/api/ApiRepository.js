@@ -22,13 +22,19 @@ export function formatGcsUrl(gcsUrl) {
 /**
  * Upload a PDF file to GCS via the ingestion pipeline.
  * @param {File} file - The File object from the input element.
+ * @param {string} [documentDate] - Optional date for folder organization.
+ * @param {string} [documentType] - Optional type for folder organization.
  * @returns {Promise<{status: string, gcs_url: string, filename: string}>}
  */
-export async function uploadFileToGCS(file) {
+export async function uploadFileToGCS(file, documentDate, documentType) {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/upload`, {
+  const url = new URL(`${INGESTION_BASE_URL}/api/v1/upload`);
+  if (documentDate) url.searchParams.append('document_date', documentDate);
+  if (documentType) url.searchParams.append('document_type', documentType);
+
+  const response = await fetch(url, {
     method: 'POST',
     body: formData,
   });
@@ -63,7 +69,7 @@ export async function retrieveDocument({ gcsUrl, filename, metadata }) {
     },
   };
 
-  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/retrieve`, {
+  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/generatedocsent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -80,19 +86,13 @@ export async function retrieveDocument({ gcsUrl, filename, metadata }) {
 /**
  * Ingest a received document with flat metadata.
  * @param {object} params
- * @param {string} params.workFront
- * @param {string} params.documentDate
- * @param {string} params.idBorrador
- * @param {string} params.filename
- * @param {string} params.documentType
- * @param {string} params.urlDoc
  * @returns {Promise<{status: string, document_id: string, filename: string, document_type: string}>}
  */
 export async function ingestReceivedDocument({
   workFront,
   documentDate,
   idBorrador,
-  filename,
+  codDocument,
   documentType,
   urlDoc,
 }) {
@@ -100,12 +100,48 @@ export async function ingestReceivedDocument({
     work_front: workFront,
     document_date: documentDate || 'UNKNOWN',
     id_borrador: idBorrador,
-    filename: filename,
+    cod_document: codDocument,
     document_type: documentType,
     url_doc: urlDoc,
   };
 
   const response = await fetch(`${INGESTION_BASE_URL}/api/v1/ingestdocumentreceived`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(errorBody.detail || `Ingestion failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Ingest a sent document with flat metadata.
+ * @param {object} params
+ * @returns {Promise<{status: string, document_id: string, filename: string, document_type: string}>}
+ */
+export async function ingestSentDocument({
+  workFront,
+  documentDate,
+  idBorrador,
+  codDocument,
+  documentType,
+  urlDoc,
+}) {
+  const payload = {
+    work_front: workFront,
+    document_date: documentDate || 'UNKNOWN',
+    id_borrador: idBorrador,
+    cod_document: codDocument,
+    document_type: documentType,
+    url_doc: urlDoc,
+  };
+
+  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/ingestdocumentsent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -144,7 +180,7 @@ export async function searchAndRetrieveDocument({
     front: front || null,
   };
 
-  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/retrieve`, {
+  const response = await fetch(`${INGESTION_BASE_URL}/api/v1/generatedocsent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

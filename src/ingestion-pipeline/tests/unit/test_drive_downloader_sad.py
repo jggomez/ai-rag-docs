@@ -24,6 +24,20 @@ class TestDriveDownloaderSadPaths(unittest.TestCase):
             sender="S", contract_number="C", work_front="W", document_date="D", process="P"
         )
         self.payload = ProcessingPayload(document=self.doc)
+        
+        # Patch GCS Client to avoid actual network/auth calls in tests
+        self.gcs_patcher = patch("google.cloud.storage.Client")
+        self.mock_gcs_client = self.gcs_patcher.start()
+        
+        # Setup mocks for GCS bucket and blobs
+        self.mock_bucket = MagicMock()
+        self.mock_blob = MagicMock()
+        self.mock_gcs_client.return_value.bucket.return_value = self.mock_bucket
+        self.mock_bucket.blob.return_value = self.mock_blob
+        self.mock_bucket.list_blobs.return_value = []
+
+    def tearDown(self):
+        self.gcs_patcher.stop()
 
     @patch.object(DriveDownloader, '_try_public_download', return_value=None)
     @patch("src.filters.drive_downloader.load_drive_credentials")
@@ -153,7 +167,7 @@ class TestDriveDownloaderSadPaths(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result.content, b"public-pdf-data")
-        self.assertEqual(result.document.filename, "public_doc.pdf")
+        self.assertEqual(result.document.filename, "public_doc")
         self.assertEqual(result.document.content_type, "application/pdf")
 
     @patch("urllib.request.urlopen")
@@ -179,7 +193,7 @@ class TestDriveDownloaderSadPaths(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertEqual(result.content, b"real-file-bytes")
-        self.assertEqual(result.document.filename, "warning_clean.pdf")
+        self.assertEqual(result.document.filename, "warning_clean")
         # Direct URL should have confirm code attached in the second request
         self.assertEqual(mock_request.call_count, 2)
         second_call_url = mock_request.call_args_list[1][0][0]
@@ -252,6 +266,122 @@ class TestDriveDownloaderSadPaths(unittest.TestCase):
         downloader = DriveDownloader()
         result = downloader.process(self.payload)
 
-        self.assertEqual(result.document.filename, "private_doc.pdf")
+        self.assertEqual(result.document.filename, "private_doc")
         self.assertEqual(result.document.status, DocumentStatus.DOWNLOADING)
         self.assertEqual(mock_sleep.call_count, 1) # Slept once between attempts
+
+    @patch("urllib.request.urlopen")
+    @patch("urllib.request.Request")
+    def test_process_uploads_to_gcs_new_folder(self, mock_request, mock_urlopen):
+        # Setup public download mock responses
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"public-pdf-data"
+        mock_response.headers = {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="public_doc.pdf"'
+        }
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # Configure mock GCS to return empty list when checking for folder existence
+        self.mock_bucket.list_blobs.return_value = []
+
+        downloader = DriveDownloader()
+        
+        # Make sure document has a valid date and type for testing
+        self.payload.document.document_type = DocumentType.RECEIVED
+        self.payload.document.document_date = "2026-06-06"
+        self.payload.document.filename = "public_doc.pdf"
+
+        # Act
+        result = downloader.process(self.payload)
+
+        # Assertions
+        # 1. Document properties are updated to GCS paths
+        self.assertEqual(result.document.bucket, "communications-cys")
+        self.assertEqual(result.document.object_name, "COMMUNICATIONS_RECEIVED/2026-06-06/public_doc.pdf")
+
+        # 2. list_blobs was called to check folder existence
+        self.mock_bucket.list_blobs.assert_called_with(prefix="COMMUNICATIONS_RECEIVED/2026-06-06/", max_results=1)
+
+        # 3. Both the folder placeholder and the file blob were uploaded (upload_from_string called twice)
+        self.assertEqual(self.mock_blob.upload_from_string.call_count, 2)
+        # Check folder upload arguments
+        self.mock_blob.upload_from_string.assert_any_call(b"", content_type="application/x-directory")
+        # Check file upload arguments
+        self.mock_blob.upload_from_string.assert_any_call(b"public-pdf-data", content_type="application/pdf")
+
+    @patch("urllib.request.urlopen")
+    @patch("urllib.request.Request")
+    def test_process_uploads_to_gcs_existing_folder(self, mock_request, mock_urlopen):
+        # Setup public download mock responses
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"public-pdf-data"
+        mock_response.headers = {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="public_doc.pdf"'
+        }
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # Configure mock GCS to return an existing blob, meaning folder exists
+        existing_blob = MagicMock()
+        self.mock_bucket.list_blobs.return_value = [existing_blob]
+
+        downloader = DriveDownloader()
+        
+        self.payload.document.document_type = DocumentType.RECEIVED
+        self.payload.document.document_date = "2026-06-06"
+        self.payload.document.filename = "public_doc.pdf"
+
+        # Reset mock call counts
+        self.mock_blob.upload_from_string.reset_mock()
+
+        # Act
+        result = downloader.process(self.payload)
+
+        # Assertions
+        self.assertEqual(result.document.bucket, "communications-cys")
+        self.assertEqual(result.document.object_name, "COMMUNICATIONS_RECEIVED/2026-06-06/public_doc.pdf")
+
+        # Only one upload (the actual file), folder placeholder is not uploaded
+        self.mock_blob.upload_from_string.assert_called_once_with(b"public-pdf-data", content_type="application/pdf")
+
+    @patch("urllib.request.urlopen")
+    @patch("urllib.request.Request")
+    def test_process_uploads_to_gcs_sent_document(self, mock_request, mock_urlopen):
+        # Setup public download mock responses
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"public-pdf-data"
+        mock_response.headers = {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="sent_doc.pdf"'
+        }
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        # Configure mock GCS to return empty list when checking for folder existence
+        self.mock_bucket.list_blobs.return_value = []
+
+        downloader = DriveDownloader()
+        
+        # Configure as a SENT document
+        self.payload.document.document_type = DocumentType.SENT
+        self.payload.document.document_date = "2026-06-06"
+        self.payload.document.filename = "sent_doc.pdf"
+
+        # Reset mock call counts
+        self.mock_blob.upload_from_string.reset_mock()
+
+        # Act
+        result = downloader.process(self.payload)
+
+        # Assertions
+        # 1. Document properties are updated to the SENT GCS path
+        self.assertEqual(result.document.bucket, "communications-cys")
+        self.assertEqual(result.document.object_name, "COMMUNICATIONS_SENT/2026-06-06/sent_doc.pdf")
+
+        # 2. list_blobs was called to check sent folder existence
+        self.mock_bucket.list_blobs.assert_called_with(prefix="COMMUNICATIONS_SENT/2026-06-06/", max_results=1)
+
+        # 3. Both folder placeholder and actual file uploaded
+        self.assertEqual(self.mock_blob.upload_from_string.call_count, 2)
+        self.mock_blob.upload_from_string.assert_any_call(b"", content_type="application/x-directory")
+        self.mock_blob.upload_from_string.assert_any_call(b"public-pdf-data", content_type="application/pdf")

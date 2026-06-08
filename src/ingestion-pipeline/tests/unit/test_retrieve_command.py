@@ -88,14 +88,14 @@ class TestRetrieveAndGenerateCommand:
         # 1. Test execute with id_documento_recibido
         result = cmd.execute(id_documento_recibido="test-doc")
 
-        assert "pdf_bytes" in result
+        assert "docx_bytes" in result
         assert result["similar_count"] == 1
         assert result["sent_count"] == 1
         assert result["subject"] == "Test Subject"
         assert "gcs_url" in result
 
         mock_document_repo.get_document.assert_called_once_with("test-doc")
-        mock_document_repo.save_document.assert_called_once()
+        assert mock_document_repo.save_document.call_count == 0
 
         # 2. Test execute with cod_comunicado_recibido
         mock_document_repo.get_document.reset_mock()
@@ -105,7 +105,7 @@ class TestRetrieveAndGenerateCommand:
         result = cmd.execute(cod_comunicado_recibido="REC-001")
         mock_document_repo.get_document.assert_not_called()
         mock_document_repo.get_document_by_object_name.assert_called_once_with("REC-001")
-        mock_document_repo.save_document.assert_called_once()
+        assert mock_document_repo.save_document.call_count == 0
 
     def test_fails_when_document_not_found(
         self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings

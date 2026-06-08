@@ -15,12 +15,12 @@ export function retrieveView() {
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
           <div class="space-y-1.5">
-            <label class="card-label">Código Comunicado Recibido (Heurístico)</label>
-            <input type="text" id="received_communication_code" class="input-field" placeholder="e.g. REC-001 o nombre de archivo">
+            <label class="card-label">Código Comunicado Recibido</label>
+            <input type="text" id="received_communication_code" class="input-field" placeholder="e.g. REC-001 o nombre de archivo" required>
           </div>
           <div class="space-y-1.5">
-            <label class="card-label">ID Documento Recibido (Firestore ID)</label>
-            <input type="text" id="received_document_id" class="input-field" placeholder="e.g. 76857089_REC">
+            <label class="card-label">ID Documento Recibido</label>
+            <input type="text" id="received_document_id" class="input-field" placeholder="e.g. 76857089_REC" required>
           </div>
           <div class="space-y-1.5">
             <label class="card-label">Frente de Trabajo (Pre-filtro RAG)</label>
@@ -72,8 +72,8 @@ export function retrieveView() {
       const startDate = document.getElementById('start_date').value;
       const endDate = document.getElementById('end_date').value;
 
-      if (!receivedCommunicationCode && !receivedDocumentId) {
-        showStatus('error', 'Campos requeridos', 'Debes ingresar al menos uno de los identificadores del documento (Código Comunicado o ID Documento).');
+      if (!receivedCommunicationCode || !receivedDocumentId) {
+        showStatus('error', 'Campos requeridos', 'Debes ingresar ambos identificadores del documento (Código Comunicado e ID Documento).');
         return;
       }
 
@@ -110,7 +110,7 @@ export function retrieveView() {
             <div class="mt-6">
               <a href="${responseUrl}" target="_blank" class="inline-flex items-center px-4 py-2.5 bg-indigo-600 text-white rounded-lg font-bold text-sm shadow-md hover:bg-indigo-700 transition-all active:scale-95">
                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                Descargar Respuesta PDF Generada
+                Descargar Respuesta DOCX Generada
               </a>
             </div>
           ` : ''}

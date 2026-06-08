@@ -28,6 +28,9 @@ COPY ./app ./app
 
 RUN uv sync --frozen
 
+# Pre-download the FlashRank model during build time
+RUN uv run python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-TinyBERT-L-2-v2', cache_dir='/tmp/flashrank_cache')"
+
 # Change ownership to the non-root user
 RUN chown -R appuser:appgroup /code
 

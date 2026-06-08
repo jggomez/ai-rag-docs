@@ -133,12 +133,9 @@ class TestLiveIngestionIntegration(unittest.TestCase):
                 self.assertIn(key, raw_dict, f"Missing flat Spanish key: {key}")
                 self.assertIsNotNone(raw_dict.get(key), f"Value for {key} should not be None")
 
-            # url_archivo_respuesta is only required/not None for RECEIVED documents
-            self.assertIn("url_archivo_respuesta", raw_dict)
-            if is_received:
-                self.assertIsNotNone(raw_dict.get("url_archivo_respuesta"))
-            else:
-                self.assertIsNone(raw_dict.get("url_archivo_respuesta"))
+            # url_respuesta should be present and not None for both since it holds the response GCS URL
+            self.assertIn("url_respuesta", raw_dict)
+            self.assertIsNotNone(raw_dict.get("url_respuesta"))
 
             # Spanish Custom/Gemini Metadata Keys flat at the root
             self.assertIn("texto_extraido", raw_dict, "Missing flat Spanish key: texto_extraido")
@@ -146,7 +143,7 @@ class TestLiveIngestionIntegration(unittest.TestCase):
 
             # Assert Dual URLs are present in Spanish
             self.assertIn("url_recibido", raw_dict, "Missing Spanish key: url_recibido")
-            self.assertIn("url_origen", raw_dict, "Missing Spanish key: url_origen")
+            self.assertNotIn("url_origen", raw_dict)
             inner_repo = self.document_repo.received_repo if is_received else self.document_repo.sent_repo
             expected_db = (
                 self.settings.firestore_database_received
@@ -187,7 +184,7 @@ class TestLiveIngestionIntegration(unittest.TestCase):
                 self.assertNotIn("metadatos_ingenieria", chunk_dict)
                 
                 # Verify that all parent engineering metadata fields are flat on the root
-                for k in es_meta_keys + ["url_archivo_respuesta"]:
+                for k in es_meta_keys + ["url_respuesta"]:
                     self.assertIn(k, chunk_dict)
                     self.assertEqual(chunk_dict[k], raw_dict[k])
                 
@@ -195,9 +192,8 @@ class TestLiveIngestionIntegration(unittest.TestCase):
                 self.assertIn("indice_chunk", chunk_dict)
 
                 # Dual URLs in chunks
-                self.assertIn("url_origen", chunk_dict)
+                self.assertNotIn("url_origen", chunk_dict)
                 self.assertIn("url_recibido", chunk_dict)
-                self.assertEqual(chunk_dict["url_origen"], raw_dict["url_origen"])
                 self.assertEqual(chunk_dict["url_recibido"], raw_dict["url_recibido"])
 
                 # Embedding vector presence

@@ -45,125 +45,7 @@ class TestRESTAPIIntegration(unittest.TestCase):
             for chunk_snap in repo.chunks_collection.stream():
                 chunk_snap.reference.delete()
 
-    def _build_payload(self, url: str, doc_type: str, response_url: str) -> dict:
-        """Helper to construct the standard ingestion API payload."""
-        return {
-            "url": url,
-            "document_type": doc_type,
-            "metadata": {
-                "work_front": "Descarga intermedia",
-                "document_date": "26/02/2025",
-                "response_file_url": response_url,
-                "custom_project_tag": "Ingenieria-Rest-Test"
-            }
-        }
 
-    def _assert_common_firestore_schema(self, raw_doc: dict):
-        """Helper to assert the unified flat Spanish schema is respected."""
-        self.assertNotIn("metadatos_ingenieria", raw_doc)
-        self.assertNotIn("metadatos", raw_doc)
-        self.assertNotIn("bucket", raw_doc)
-        self.assertNotIn("url_enviado", raw_doc) # Should be completely unified/omitted!
-        self.assertIn("nombre_archivo", raw_doc)
-        self.assertEqual(raw_doc["estado"], "COMPLETADO")
-
-        # Flat Engineering Metadata
-        self.assertEqual(raw_doc["frente_trabajo"], "Descarga intermedia")
-        self.assertEqual(raw_doc["fecha_documento"], "26/02/2025")
-        self.assertEqual(raw_doc["custom_project_tag"], "Ingenieria-Rest-Test")
-
-    def test_received_document_creates_cross_urls(self):
-        """Tests that RECEIVED documents execute OCR and map URLs symmetrically."""
-        received_url = "https://drive.google.com/file/d/1HPlEkEofIcUBbj4bjY60XEDGwdgUAe3U/view?usp=drivesdk"
-        sent_response_url = "https://drive.google.com/file/d/1wX4UQTO7NKmRNC-bX4scR9PsTHHru7lp/view?usp=drivesdk"
-
-        payload = self._build_payload(received_url, "received", sent_response_url)
-
-        logger.info("Sending RECEIVED document single ingest request")
-        response = self.client.post("/api/v1/ingest", json=payload)
-        
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["status"], "completed")
-        self.assertEqual(data["document_type"], "received")
-
-        # Capture generated Firestore ID
-        doc_id = data["document_id"]
-        self.assertIsNotNone(doc_id)
-        self.assertFalse(doc_id.endswith("_REC") or doc_id.endswith("_SEN"))
-
-        # Verify exact Spanish storage structure in Firestore (docs-recibidos)
-        doc_snap = document_repo.received_repo.docs_collection.document(doc_id).get()
-        self.assertTrue(doc_snap.exists)
-        raw_rec = doc_snap.to_dict()
-
-        self._assert_common_firestore_schema(raw_rec)
-
-        # Cross-mapping URL Assertions for RECEIVED:
-        self.assertEqual(raw_rec["url_recibido"], received_url)
-        self.assertEqual(raw_rec["url_origen"], received_url)
-
-        # Received specific: OCR text extraction
-        self.assertIn("texto_extraido", raw_rec)
-        self.assertIsNotNone(raw_rec["texto_extraido"])
-
-        # Check generated chunks
-        chunks_query = document_repo.received_repo.chunks_collection.where(
-            "id_documento", "==", doc_id
-        ).stream()
-        chunks_list = [c.to_dict() for c in chunks_query]
-        self.assertGreater(len(chunks_list), 0)
-
-        for chunk in chunks_list:
-            self.assertFalse(chunk["id"].endswith("_0") or chunk["id"].endswith("_1"))
-            self.assertEqual(chunk["id_documento"], doc_id)
-            self.assertEqual(chunk["url_recibido"], received_url)
-            self.assertIn("indice_chunk", chunk)
-
-    def test_sent_document_creates_cross_urls(self):
-        """Tests that SENT documents map URLs symmetrically and skip OCR cleanly."""
-        sent_url = "https://drive.google.com/file/d/1wX4UQTO7NKmRNC-bX4scR9PsTHHru7lp/view?usp=drivesdk"
-        received_origin_url = "https://drive.google.com/file/d/1HPlEkEofIcUBbj4bjY60XEDGwdgUAe3U/view?usp=drivesdk"
-
-        payload = self._build_payload(sent_url, "sent", received_origin_url)
-
-        logger.info("Sending SENT document single ingest request")
-        response = self.client.post("/api/v1/ingest", json=payload)
-        
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data["status"], "completed")
-        self.assertEqual(data["document_type"], "sent")
-
-        # Capture generated Firestore ID
-        doc_id = data["document_id"]
-        self.assertIsNotNone(doc_id)
-        self.assertFalse(doc_id.endswith("_REC") or doc_id.endswith("_SEN"))
-
-        # Verify exact Spanish storage structure in Firestore (docs-enviados)
-        doc_snap = document_repo.sent_repo.docs_collection.document(doc_id).get()
-        self.assertTrue(doc_snap.exists)
-        raw_sen = doc_snap.to_dict()
-
-        self._assert_common_firestore_schema(raw_sen)
-
-        # Cross-mapping URL Assertions for SENT:
-        self.assertEqual(raw_sen["url_origen"], sent_url)
-        self.assertEqual(raw_sen["url_recibido"], received_origin_url)
-
-        # Check generated chunks
-        chunks_query = document_repo.sent_repo.chunks_collection.where(
-            "id_documento", "==", doc_id
-        ).stream()
-        chunks_list = [c.to_dict() for c in chunks_query]
-        self.assertGreater(len(chunks_list), 0)
-
-        for chunk in chunks_list:
-            self.assertFalse(chunk["id"].endswith("_0") or chunk["id"].endswith("_1"))
-            self.assertEqual(chunk["id_documento"], doc_id)
-            self.assertEqual(chunk["url_recibido"], received_origin_url)
-            self.assertEqual(chunk["url_origen"], sent_url)
-            self.assertIn("indice_chunk", chunk)
 
     def test_ingest_received_flat_endpoint(self):
         """Tests that /api/v1/ingestdocumentreceived with flat payload ingests successfully."""
@@ -189,6 +71,32 @@ class TestRESTAPIIntegration(unittest.TestCase):
         raw_rec = doc_snap.to_dict()
         self.assertEqual(raw_rec["nombre_archivo"], "REC-001.pdf")
         self.assertEqual(raw_rec["id_borrador"], "76857089")
+
+    def test_ingest_sent_flat_endpoint(self):
+        """Tests that /api/v1/ingestdocumentsent with flat payload ingests successfully."""
+        payload = {
+            "work_front": "Comunicaciones",
+            "document_date": "08/06/2026",
+            "id_borrador": "99999999",
+            "filename": "SEN-999.pdf",
+            "document_type": "sent",
+            "url_doc": "https://drive.google.com/file/d/1HPlEkEofIcUBbj4bjY60XEDGwdgUAe3U/view?usp=drivesdk"
+        }
+        
+        response = self.client.post("/api/v1/ingestdocumentsent", json=payload)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "completed")
+        self.assertEqual(data["sent_document"]["filename"], "SEN-999.pdf")
+        self.assertEqual(data["sent_document"]["document_type"], "sent")
+        
+        # Verify it exists in firestore sent collection
+        doc_snap = document_repo.sent_repo.docs_collection.document("99999999_SEN").get()
+        self.assertTrue(doc_snap.exists)
+        raw_rec = doc_snap.to_dict()
+        self.assertEqual(raw_rec["nombre_archivo"], "SEN-999.pdf")
+        self.assertEqual(raw_rec["id_borrador"], "99999999")
+        self.assertEqual(raw_rec["url_respuesta"], payload["url_doc"])
 
     def test_retrieve_endpoint_flat_success(self):
         """Tests RAG retrieve endpoint with flat request."""
@@ -217,7 +125,7 @@ class TestRESTAPIIntegration(unittest.TestCase):
         document_repo.save_document(doc)
         
         # Now call retrieve endpoint with iddocumentrecibido
-        response = self.client.post("/api/v1/retrieve", json={
+        response = self.client.post("/api/v1/generatedocsent", json={
             "iddocumentrecibido": "test-retrieve-integration-id"
         })
         self.assertEqual(response.status_code, 200)

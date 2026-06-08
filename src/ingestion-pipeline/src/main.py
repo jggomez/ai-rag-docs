@@ -11,7 +11,9 @@ from src.domain.enums import DocumentStatus, DocumentType
 from src.domain.entities import SourceDocument
 from src.repositories.storage_repo import GCSStorageRepository
 from src.repositories.document_repo import RoutingFirestoreDocumentRepository
-from src.infrastructure.repositories.csv_metadata_repository import CSVMetadataRepository
+from src.infrastructure.repositories.csv_metadata_repository import (
+    CSVMetadataRepository,
+)
 from src.usecases.builder import PipelineBuilder
 from src.usecases.ingest_document import IngestDocumentCommand
 from src.usecases.retrieve_and_generate import RetrieveAndGenerateCommand
@@ -19,11 +21,14 @@ from src.usecases.retrieve_and_generate import RetrieveAndGenerateCommand
 # Configure MLflow Tracing for LLMs
 if os.environ.get("ENABLE_MLFLOW", "false").lower() == "true":
     import urllib.request
+
     try:
         tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001")
         # Verify connectivity with a strict 1.0 second timeout
         try:
-            req = urllib.request.Request(f"{tracking_uri.rstrip('/')}/health", method="GET")
+            req = urllib.request.Request(
+                f"{tracking_uri.rstrip('/')}/health", method="GET"
+            )
             with urllib.request.urlopen(req, timeout=1.0) as response:
                 if response.status == 200:
                     mlflow.set_tracking_uri(tracking_uri)
@@ -31,11 +36,17 @@ if os.environ.get("ENABLE_MLFLOW", "false").lower() == "true":
                     mlflow.langchain.autolog()
                     mlflow.gemini.autolog()
                     logger_mlflow = logging.getLogger("mlflow")
-                    logger_mlflow.info(f"MLflow LLM autologging enabled at {tracking_uri}")
+                    logger_mlflow.info(
+                        f"MLflow LLM autologging enabled at {tracking_uri}"
+                    )
                 else:
-                    logging.warning(f"MLflow health check returned status {response.status}. Skipping telemetry.")
+                    logging.warning(
+                        f"MLflow health check returned status {response.status}. Skipping telemetry."
+                    )
         except Exception as conn_err:
-            logging.warning(f"MLflow server at {tracking_uri} is unreachable ({conn_err}). Skipping telemetry.")
+            logging.warning(
+                f"MLflow server at {tracking_uri} is unreachable ({conn_err}). Skipping telemetry."
+            )
     except Exception as e:
         logging.warning(f"Could not initialize MLflow autologging: {e}")
 else:
@@ -53,7 +64,9 @@ if allow_origins_str == "*":
     allow_origins = ["*"]
     allow_credentials = False
 else:
-    allow_origins = [origin.strip() for origin in allow_origins_str.split(",") if origin.strip()]
+    allow_origins = [
+        origin.strip() for origin in allow_origins_str.split(",") if origin.strip()
+    ]
     allow_credentials = True
 
 app.add_middleware(
@@ -65,35 +78,22 @@ app.add_middleware(
 )
 
 # Pydantic Schemas for single ingest
-class IngestRequestMetadata(BaseModel):
-    work_front: str
-    document_date: str
-    response_file_url: Optional[str] = None
-    id_borrador: Optional[str] = None
-    
-    model_config = {
-        "extra": "allow"
-    }
 
-class SingleIngestRequest(BaseModel):
-    url: str = Field(..., description="The Drive or GCS file URL")
-    document_type: str = Field(..., description="Must be either 'sent' or 'received'")
-    filename: Optional[str] = Field(None, description="Optional custom filename/identifier")
-    metadata: IngestRequestMetadata
 
-class IngestReceivedRequest(BaseModel):
+class IngestDocumentRequest(BaseModel):
     work_front: str
     document_date: str
     id_borrador: str
-    filename: str
+    cod_document: str
     document_type: str
     url_doc: str
+
 
 # 1. Dependency injection and wiring
 storage_repo = GCSStorageRepository()
 document_repo = RoutingFirestoreDocumentRepository(
     database_received=settings.firestore_database_received,
-    database_sent=settings.firestore_database_sent
+    database_sent=settings.firestore_database_sent,
 )
 csv_metadata_repo = CSVMetadataRepository(settings.metadata_csv_path)
 
@@ -102,68 +102,100 @@ pipeline_builder = PipelineBuilder(settings)
 
 # 3. Construct the default ingestion pipeline (legacy/GCS)
 default_pipeline = pipeline_builder.build_ingestion_pipeline(
-    storage_repo, 
-    document_repo,
-    csv_metadata_repo=csv_metadata_repo
+    storage_repo, document_repo, csv_metadata_repo=csv_metadata_repo
 )
 
 # 4. Inject document_repo and the builder into the command
 ingest_command = IngestDocumentCommand(
-    document_repo=document_repo, 
+    document_repo=document_repo,
     pipeline_builder=pipeline_builder,
-    default_pipeline=default_pipeline
+    default_pipeline=default_pipeline,
 )
+
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
 
+
 @app.post("/api/v1/upload")
-async def upload_file_to_gcs(file: UploadFile = File(...)):
+async def upload_file_to_gcs(
+    file: UploadFile = File(...),
+    document_date: Optional[str] = None,
+    document_type: str = "received",
+):
     """
     Upload a communication file directly to GCS in the ingestion bucket/prefix.
+    Organizes files by type and date folder (YYYY-MM-DD).
     """
     try:
+        from datetime import datetime
+
         content = await file.read()
-        object_name = f"{settings.gcs_ingestion_prefix}{file.filename}"
-        logger.info(f"Uploading file {file.filename} to GCS bucket {settings.gcs_ingestion_bucket} as {object_name}...")
-        
+
+        # Select prefix based on type
+        prefix = (
+            settings.gcs_sent_prefix
+            if document_type.lower() == "sent"
+            else settings.gcs_received_prefix
+        )
+
+        # Use document_date if provided, otherwise current date
+        date_str = None
+        if document_date:
+            if "/" in document_date:
+                parts = document_date.split("/")
+                if len(parts) == 3:
+                    date_str = f"{parts[2]}-{parts[1]}-{parts[0]}"
+            elif "-" in document_date and len(document_date) == 10:
+                date_str = document_date
+
+        if not date_str:
+            date_str = datetime.now().strftime("%Y-%m-%d")
+
+        object_name = f"{prefix}{date_str}/{file.filename}"
+
+        logger.info(
+            f"Uploading file {file.filename} to GCS bucket {settings.gcs_communications_bucket} as {object_name}..."
+        )
+
         gcs_url = storage_repo.upload_file(
-            bucket_name=settings.gcs_ingestion_bucket,
+            bucket_name=settings.gcs_communications_bucket,
             object_name=object_name,
             content=content,
-            content_type=file.content_type
+            content_type=file.content_type,
         )
-        
+
         logger.info(f"File uploaded successfully. GCS URL: {gcs_url}")
-        return {
-            "status": "success",
-            "gcs_url": gcs_url,
-            "filename": file.filename
-        }
+        return {"status": "success", "gcs_url": gcs_url, "filename": file.filename}
     except Exception as e:
         logger.error(f"Error uploading file to GCS: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
+
 @app.post("/api/v1/ingest/batch")
-async def ingest_batch_csv():
+async def ingest_batch_csv(limit: Optional[int] = None):
     """
     Trigger batch ingestion for all records in the local communications.csv file.
     This uses the strategy-based pipeline selection inside the command.
     """
     try:
-        logger.info(f"Starting batch ingestion from local CSV: {settings.metadata_csv_path}")
-        
-        result = ingest_command.execute_batch(csv_metadata_repo)
-        
+        logger.info(
+            f"Starting batch ingestion from local CSV: {settings.metadata_csv_path} (limit={limit})"
+        )
+
+        result = ingest_command.execute_batch(csv_metadata_repo, limit=limit)
+
         return {
-            "status": "completed", 
+            "status": "completed",
             "processed_records": result["processed_records"],
-            "total_records": result["total_records"]
+            "total_records": result["total_records"],
+            "limit_applied": limit,
         }
     except Exception as e:
         logger.error(f"Error in CSV batch ingestion: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 def _sanitize_header_value(val: str) -> str:
     """Sanitize header values to be ASCII compatible by converting accented characters
@@ -172,6 +204,7 @@ def _sanitize_header_value(val: str) -> str:
     if not val:
         return ""
     import unicodedata
+
     replacements = {
         "\u2013": "-",  # en dash
         "\u2014": "-",  # em dash
@@ -182,92 +215,39 @@ def _sanitize_header_value(val: str) -> str:
     }
     for char, repl in replacements.items():
         val = val.replace(char, repl)
-        
-    normalized = unicodedata.normalize('NFKD', val)
-    return normalized.encode('ascii', errors='ignore').decode('ascii')
+
+    normalized = unicodedata.normalize("NFKD", val)
+    return normalized.encode("ascii", errors="ignore").decode("ascii")
 
 
-def _build_document_from_request(request: Union[SingleIngestRequest, "RetrieveRequest"]) -> SourceDocument:
-    """Builder method to construct a SourceDocument from an HTTP request."""
-    # Resolve doc type & ID
+def _build_source_document(request: IngestDocumentRequest) -> SourceDocument:
+    """Build a SourceDocument from the flat IngestDocumentRequest."""
     doc_type_str = request.document_type.lower().strip()
-    doc_type = DocumentType.RECEIVED if doc_type_str == "received" else DocumentType.SENT
-    temp_id = f"single_ingest_{'REC' if doc_type == DocumentType.RECEIVED else 'SEN'}"
-
-    # Extract clean filename
-    req_filename = getattr(request, "filename", None)
-    if req_filename:
-        filename = req_filename.strip()
-    else:
-        clean_url = request.url.split("?")[0]
-        filename = os.path.basename(clean_url) or "document.pdf"
-        
-    if not filename.lower().endswith(".pdf"):
-        filename = f"{filename}.pdf"
-
-    # Optimize Extra Meta parsing natively in Pydantic O(1)
-    extra_meta = request.metadata.model_dump(
-        exclude={"work_front", "document_date", "response_file_url", "id_borrador"},
-        exclude_none=True
+    doc_type = (
+        DocumentType.RECEIVED if doc_type_str == "received" else DocumentType.SENT
     )
 
-    if hasattr(request, "codcomunicadorecibido") and request.codcomunicadorecibido:
-        extra_meta["codcomunicadorecibido"] = request.codcomunicadorecibido
+    # Use cod_document as the official communication code (nombre_objeto)
+    cod_document = request.cod_document.strip()
+    if cod_document.lower().endswith(".pdf"):
+        cod_document = cod_document[:-4]
 
-    # Apply symmetric URL cross-mapping
-    if doc_type == DocumentType.RECEIVED:
-        extra_meta["url_recibido"] = request.url
-        if request.metadata.response_file_url:
-            extra_meta["url_enviado"] = request.metadata.response_file_url
-    else:
-        extra_meta["url_enviado"] = request.url
-        if request.metadata.response_file_url:
-            extra_meta["url_recibido"] = request.metadata.response_file_url
+    # Initial filename is generic; DriveDownloader will resolve the real one from URL
+    filename = "test.pdf"
 
-    # Ensure draft_id is not null
-    draft_id = request.metadata.id_borrador
-    if not draft_id:
-        import uuid
-        draft_id = f"single_ingest_{uuid.uuid4().hex[:8]}"
-
-    # Return constructed domain entity
-    return SourceDocument(
-        id=temp_id,
-        filename=filename,
-        bucket="SINGLE_API",
-        object_name=filename,
-        content_type="application/pdf",
-        size_bytes=0,
-        status=DocumentStatus.PENDING,
-        document_type=doc_type,
-        source_url=request.url,
-        work_front=request.metadata.work_front,
-        document_date=request.metadata.document_date,
-        response_file_url=request.metadata.response_file_url,
-        draft_id=draft_id,
-        metadata=extra_meta
-    )
-
-
-def _build_received_document(request: IngestReceivedRequest) -> SourceDocument:
-    """Build a SourceDocument from the flat IngestReceivedRequest."""
-    doc_type_str = request.document_type.lower().strip()
-    doc_type = DocumentType.RECEIVED if doc_type_str == "received" else DocumentType.SENT
-    
-    filename = request.filename.strip()
-    object_name = filename[:-4] if filename.lower().endswith(".pdf") else filename
-    
     extra_meta = {}
     if doc_type == DocumentType.RECEIVED:
         extra_meta["url_recibido"] = request.url_doc
     else:
         extra_meta["url_enviado"] = request.url_doc
 
+    extra_meta["codigo_comunicado"] = cod_document
+
     return SourceDocument(
         id=f"{request.id_borrador}_{'REC' if doc_type == DocumentType.RECEIVED else 'SEN'}",
         filename=filename,
         bucket="SINGLE_API",
-        object_name=object_name,
+        object_name=f"TMP_{cod_document}",
         content_type="application/pdf",
         size_bytes=0,
         status=DocumentStatus.PENDING,
@@ -275,87 +255,42 @@ def _build_received_document(request: IngestReceivedRequest) -> SourceDocument:
         source_url=request.url_doc,
         work_front=request.work_front,
         document_date=request.document_date,
-        response_file_url=None,
+        response_file_url=request.url_doc if doc_type == DocumentType.SENT else None,
         draft_id=request.id_borrador,
-        metadata=extra_meta
+        metadata=extra_meta,
     )
 
 
-@app.post("/api/v1/ingest")
-async def ingest_single_document(request: SingleIngestRequest):
-    """
-    Trigger ingestion for a single document URL with its metadata.
-    Automatically handles routing, URL cross-referencing and strategy selection.
-    """
-    try:
-        # Validate early
-        if request.document_type.lower().strip() not in ("sent", "received"):
-            raise HTTPException(
-                status_code=400, 
-                detail="document_type must be either 'sent' or 'received'"
-            )
-
-        # Delegate document construction (SRP)
-        doc = _build_document_from_request(request)
-
-        # Delegate strategy selection
-        selected_pipeline = pipeline_builder.build_pipeline_for_document(
-            document_type=doc.document_type,
-            document_repo=document_repo,
-        )
-
-        # Execute pipeline
-        logger.info(f"Running pipeline strategy for single document: {doc.filename} ({doc.document_type.value})")
-        ingest_command._run_pipeline(doc, pipeline=selected_pipeline)
-
-        return {
-            "status": "completed",
-            "document_id": doc.id,
-            "filename": doc.filename,
-            "document_type": request.document_type
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in single document ingestion: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/api/v1/ingestdocumentreceived")
-async def ingest_document_received(request: IngestReceivedRequest):
+async def ingest_document_received(request: IngestDocumentRequest):
     """
-    Ingest a single received or sent document using the flat request payload.
+    Ingest a single received document.
     """
     try:
-        # Validate early
-        doc_type_str = request.document_type.lower().strip()
-        if doc_type_str not in ("received", "sent"):
-            raise HTTPException(
-                status_code=400, 
-                detail="document_type must be either 'sent' or 'received'"
-            )
+        # Force RECEIVED type
+        request.document_type = "received"
 
         # Build document
-        doc = _build_received_document(request)
-        
+        doc = _build_source_document(request)
+
         # Build pipeline
         selected_pipeline = pipeline_builder.build_pipeline_for_document(
             document_type=doc.document_type,
             document_repo=document_repo,
         )
-        
-        logger.info(f"Ingesting document: {doc.filename} (ID: {doc.id})")
+
+        logger.info(f"Ingesting RECEIVED document: {doc.filename} (ID: {doc.id})")
         ingest_command._run_pipeline(doc, pipeline=selected_pipeline)
-        
+
         return {
             "status": "completed",
             "received_document": {
                 "document_id": doc.id,
                 "filename": doc.filename,
-                "document_type": doc_type_str
+                "cod_document": doc.metadata.get("codigo_comunicado"),
+                "document_type": "received",
             },
-            "sent_document": None
+            "sent_document": None,
         }
 
     except HTTPException:
@@ -365,20 +300,74 @@ async def ingest_document_received(request: IngestReceivedRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/ingestdocumentsent")
+async def ingest_document_sent(request: IngestDocumentRequest):
+    """
+    Ingest a single sent document.
+    """
+    try:
+        # Force SENT type
+        request.document_type = "sent"
+
+        # Build document
+        doc = _build_source_document(request)
+
+        # Build pipeline
+        selected_pipeline = pipeline_builder.build_pipeline_for_document(
+            document_type=doc.document_type,
+            document_repo=document_repo,
+        )
+
+        logger.info(f"Ingesting SENT document: {doc.filename} (ID: {doc.id})")
+        ingest_command._run_pipeline(doc, pipeline=selected_pipeline)
+
+        return {
+            "status": "completed",
+            "received_document": None,
+            "sent_document": {
+                "document_id": doc.id,
+                "filename": doc.filename,
+                "cod_document": doc.metadata.get("codigo_comunicado"),
+                "document_type": "sent",
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in sent document ingestion: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 # 5. Initialize the retrieve-and-generate command
 retrieve_command = RetrieveAndGenerateCommand(settings, document_repo)
 
 
 class RetrieveRequest(BaseModel):
-    received_communication_code: Optional[str] = Field(default=None, validation_alias=AliasChoices("received_communication_code", "codcomunicadorecibido"))
-    received_document_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("received_document_id", "iddocumentrecibido"))
-    start_date: Optional[str] = Field(default=None, validation_alias=AliasChoices("start_date", "fecha_ini"))
-    end_date: Optional[str] = Field(default=None, validation_alias=AliasChoices("end_date", "fecha_fin"))
-    front: Optional[str] = Field(default=None, validation_alias=AliasChoices("front", "frente"))
+    received_communication_code: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "received_communication_code", "codcomunicadorecibido"
+        ),
+    )
+    received_document_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("received_document_id", "iddocumentrecibido"),
+    )
+    start_date: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("start_date", "fecha_ini")
+    )
+    end_date: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("end_date", "fecha_fin")
+    )
+    front: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("front", "frente")
+    )
 
 
-@app.post("/api/v1/retrieve")
-async def retrieve_document(request: RetrieveRequest):
+@app.post("/api/v1/generatedocsent")
+async def generate_doc_sent(request: RetrieveRequest):
     """
     RAG Retriever endpoint: looks up an ingested document in Firestore by
     received_document_id or received_communication_code, and runs the RAG pipeline using its content.
@@ -387,7 +376,7 @@ async def retrieve_document(request: RetrieveRequest):
         if not request.received_document_id and not request.received_communication_code:
             raise HTTPException(
                 status_code=400,
-                detail="At least one of received_communication_code or received_document_id must be provided"
+                detail="At least one of received_communication_code or received_document_id must be provided",
             )
 
         # Execute the RAG pipeline
@@ -427,21 +416,25 @@ async def handle_event(event: GCSEvent):
     try:
         # Log the event for debugging
         logger.info(f"Received event for: gs://{event.bucket}/{event.name}")
-        
+
         # Check if it's in our target directory
-        if not event.name.startswith("COMMUNICATION_RECEIVED/"):
+        if not event.name.startswith(
+            settings.gcs_received_prefix
+        ) and not event.name.startswith(settings.gcs_sent_prefix):
             logger.info(f"Ignoring file: {event.name} (outside target directory)")
             return {"status": "ignored", "reason": "wrong_prefix"}
 
         # 1. Trigger IngestDocumentCommand
         doc = ingest_command.execute(event.dict(by_alias=True))
-        
+
         return {"status": "accepted", "id": doc.id, "file": doc.filename}
 
     except Exception as e:
         logger.error(f"Error processing event: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=settings.port)

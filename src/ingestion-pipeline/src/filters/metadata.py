@@ -18,7 +18,11 @@ class MetadataExtractor(Filter[ProcessingPayload, ProcessingPayload]):
         
         obj_name = payload.document.object_name
         # Remove prefix
-        clean_path = obj_name.replace("COMMUNICATION_RECEIVED/", "")
+        clean_path = obj_name
+        for prefix in ["COMMUNICATION_RECEIVED/", "COMMUNICATION_SENT/", "COMMUNICATIONS_RECEIVED/", "COMMUNICATIONS_SENT/"]:
+            if clean_path.startswith(prefix):
+                clean_path = clean_path[len(prefix):]
+                break
         parts = clean_path.split("/")
         filename = parts[-1]
         

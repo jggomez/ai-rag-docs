@@ -23,7 +23,7 @@ def test_retrieve_endpoint_success():
             "gcs_url": "gs://fake-bucket/fake.pdf"
         }
 
-        response = client.post("/api/v1/retrieve", json={
+        response = client.post("/api/v1/generatedocsent", json={
             "codcomunicadorecibido": "REC-001",
             "iddocumentrecibido": "doc-id-123"
         })
@@ -48,7 +48,7 @@ def test_retrieve_endpoint_success():
 def test_retrieve_endpoint_missing_fields():
     client = TestClient(app)
 
-    response = client.post("/api/v1/retrieve", json={})
+    response = client.post("/api/v1/generatedocsent", json={})
     assert response.status_code == 400
     assert "At least one of received_communication_code or received_document_id must be provided" in response.json()["detail"]
 
@@ -58,7 +58,7 @@ def test_retrieve_endpoint_value_error_handling():
     with patch("src.main.retrieve_command") as mock_retrieve_command:
         mock_retrieve_command.execute.side_effect = ValueError("Document not found in DB")
 
-        response = client.post("/api/v1/retrieve", json={
+        response = client.post("/api/v1/generatedocsent", json={
             "codcomunicadorecibido": "REC-NONEXISTENT"
         })
 
@@ -78,7 +78,7 @@ def test_retrieve_endpoint_with_new_filters():
             "gcs_url": "gs://fake-bucket/fake.pdf"
         }
 
-        response = client.post("/api/v1/retrieve", json={
+        response = client.post("/api/v1/generatedocsent", json={
             "received_communication_code": "REC-002",
             "received_document_id": "doc-id-456",
             "start_date": "2025-01-01",

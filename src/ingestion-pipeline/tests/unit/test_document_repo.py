@@ -134,7 +134,7 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             document_type=DocumentType.RECEIVED,
             work_front="GENERAL",
             document_date="2026-01-01",
-            source_url="https://drive.google.com/view"
+            source_url="gs://b/obj"
         )
         
         with patch.object(self.repo, "get_document", return_value=parent_doc):
@@ -167,7 +167,8 @@ class TestFirestoreDocumentRepository(unittest.TestCase):
             self.assertEqual(saved_data["id"], "chunk_id_generated")
             self.assertEqual(saved_data["id_documento"], "parent123")
             self.assertEqual(saved_data["texto"], "Chunk Subject\nChunk Body")
-            self.assertEqual(saved_data["url_origen"], "https://drive.google.com/view")
+            self.assertEqual(saved_data["url_recibido"], "gs://b/obj")
+            self.assertNotIn("url_origen", saved_data)
             self.assertTrue(isinstance(saved_data["vector"], Vector))
 
 

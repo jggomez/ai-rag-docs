@@ -20,7 +20,7 @@ def test_build_filter_stages():
     # Test with all filters
     stages = _build_filter_stages("front_a", "asunto_b", "doc_123")
     assert stages == [
-        ("id_only", {"id_documento": "doc_123"}),
+        ("code_only", {"nombre_objeto": "doc_123"}),
         ("filename_only", {"nombre_archivo": "doc_123"}),
         ("subject+metadata", {"asunto": "asunto_b", "frente_trabajo": "front_a"}),
         ("subject_only", {"asunto": "asunto_b"}),
@@ -28,10 +28,10 @@ def test_build_filter_stages():
         ("vector_only", {})
     ]
 
-    # Test with document_id and work_front, no subject
+    # Test with document_code and work_front, no subject
     stages_no_subject = _build_filter_stages("front_a", None, "doc_123")
     assert stages_no_subject == [
-        ("id_only", {"id_documento": "doc_123"}),
+        ("code_only", {"nombre_objeto": "doc_123"}),
         ("filename_only", {"nombre_archivo": "doc_123"}),
         ("work_front", {"frente_trabajo": "front_a"}),
         ("vector_only", {})
@@ -64,12 +64,14 @@ def test_rerank_chunks(mock_reranker):
     assert reranked[1]["rerank_score"] == 0.85
 
 
-@patch("app.tools._genai_client")
+@patch("app.tools._get_genai_client")
 @patch("app.tools._client_received")
 @patch("app.tools._client_sent")
 @patch("app.tools._reranker")
-def test_search_communications_success(mock_reranker, mock_client_sent, mock_client_received, mock_genai_client):
+def test_search_communications_success(mock_reranker, mock_client_sent, mock_client_received, mock_genai_fn):
     # 1. Mock GenAI Embedding
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_embeddings_list = MagicMock()
     mock_embeddings_list.values = [0.1] * 768
     mock_genai_client.models.embed_content.return_value = MagicMock(embeddings=[mock_embeddings_list])
@@ -80,6 +82,7 @@ def test_search_communications_success(mock_reranker, mock_client_sent, mock_cli
         "texto": "Recibimos solicitud de diseño de viga.",
         "asunto": "Diseño de viga",
         "nombre_archivo": "REC-001.pdf",
+        "nombre_objeto": "REC-001",
         "fecha_documento": "10/05/2026",
         "frente_trabajo": "Descarga",
         "id_borrador": "draft_viga"
@@ -112,16 +115,18 @@ def test_search_communications_success(mock_reranker, mock_client_sent, mock_cli
     # Verify results
     assert "### RELEVANT RECEIVED DOCUMENTS FOUND ###" in result
     assert "Subject: Diseño de viga" in result
-    assert "Document Code: REC-001.pdf" in result
+    assert "Communication Code (Recibidas): REC-001" in result
     assert "Work Front: Descarga" in result
-    assert "SENT RESPONSE (Draft ID: draft_viga)" in result
+    assert "SENT RESPONSE (Code: N/A)" in result  # Mock sent doc doesn't have nombre_objeto
     assert "Enviamos respuesta de diseño de viga aprobando planos" in result
 
 
-@patch("app.tools._genai_client")
+@patch("app.tools._get_genai_client")
 @patch("app.tools._client_received")
-def test_search_communications_no_candidates(mock_client_received, mock_genai_client):
+def test_search_communications_no_candidates(mock_client_received, mock_genai_fn):
     # Mock embedding
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_embeddings_list = MagicMock()
     mock_embeddings_list.values = [0.1] * 768
     mock_genai_client.models.embed_content.return_value = MagicMock(embeddings=[mock_embeddings_list])
@@ -133,10 +138,12 @@ def test_search_communications_no_candidates(mock_client_received, mock_genai_cl
     assert result == "No se encontró información relevante para esta consulta."
 
 
-@patch("app.tools._genai_client")
+@patch("app.tools._get_genai_client")
 @patch("app.tools._client_received")
-def test_search_communications_date_filtering(mock_client_received, mock_genai_client):
+def test_search_communications_date_filtering(mock_client_received, mock_genai_fn):
     # Mock embedding
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_embeddings_list = MagicMock()
     mock_embeddings_list.values = [0.1] * 768
     mock_genai_client.models.embed_content.return_value = MagicMock(embeddings=[mock_embeddings_list])
@@ -203,10 +210,12 @@ def test_search_communications_date_filtering(mock_client_received, mock_genai_c
         assert "Subject mismatch" not in result
 
 
-@patch("app.tools._genai_client")
+@patch("app.tools._get_genai_client")
 @patch("app.tools._client_received")
-def test_search_communications_filter_all_out(mock_client_received, mock_genai_client):
+def test_search_communications_filter_all_out(mock_client_received, mock_genai_fn):
     # Mock embedding
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_embeddings_list = MagicMock()
     mock_embeddings_list.values = [0.1] * 768
     mock_genai_client.models.embed_content.return_value = MagicMock(embeddings=[mock_embeddings_list])
@@ -226,9 +235,11 @@ def test_search_communications_filter_all_out(mock_client_received, mock_genai_c
     assert result == "No se encontraron comunicaciones para el periodo o filtros especificados."
 
 
-@patch("app.tools._genai_client")
-def test_search_communications_exception(mock_genai_client):
+@patch("app.tools._get_genai_client")
+def test_search_communications_exception(mock_genai_fn):
     # Mock embedding to throw exception
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_genai_client.models.embed_content.side_effect = Exception("Embedding connection failed")
     
     result = search_communications(query="cause exception")
@@ -247,10 +258,12 @@ def test_parse_date():
     assert _parse_date("") is None
 
 
-@patch("app.tools._genai_client")
+@patch("app.tools._get_genai_client")
 @patch("app.tools._client_received")
-def test_search_communications_date_range_filtering(mock_client_received, mock_genai_client):
+def test_search_communications_date_range_filtering(mock_client_received, mock_genai_fn):
     # Mock embedding
+    mock_genai_client = MagicMock()
+    mock_genai_fn.return_value = mock_genai_client
     mock_embeddings_list = MagicMock()
     mock_embeddings_list.values = [0.1] * 768
     mock_genai_client.models.embed_content.return_value = MagicMock(embeddings=[mock_embeddings_list])

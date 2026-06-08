@@ -29,7 +29,7 @@ class DocumentRepository(ABC):
         pass
 
     @abstractmethod
-    def get_document_by_object_name(self, object_name: str) -> Optional[SourceDocument]:
+    def get_document_by_draft_id(self, draft_id: str) -> Optional[SourceDocument]:
         pass
 
 
@@ -49,6 +49,27 @@ class FirestoreDocumentRepository(DocumentRepository):
 
         spanish_data = self._to_spanish_dict(document)
         doc_ref.set(spanish_data)
+
+        # Sync url_recibido and url_respuesta to chunks if they exist
+        update_fields = {}
+        if spanish_data.get("url_recibido"):
+            update_fields["url_recibido"] = spanish_data["url_recibido"]
+        if spanish_data.get("url_respuesta"):
+            update_fields["url_respuesta"] = spanish_data["url_respuesta"]
+
+        if update_fields:
+            try:
+                chunks_query = self.chunks_collection.where("id_documento", "==", document.id).stream()
+                batch = self.client.batch()
+                count = 0
+                for chunk_snap in chunks_query:
+                    batch.update(chunk_snap.reference, update_fields)
+                    count += 1
+                if count > 0:
+                    batch.commit()
+                    logger.info(f"Updated {count} chunks of document {document.id} with fields {update_fields}")
+            except Exception as e:
+                logger.warning(f"Could not update chunks for document {document.id}: {e}")
 
     def get_document(self, document_id: str) -> Optional[SourceDocument]:
         doc_ref = self.docs_collection.document(document_id)
@@ -84,6 +105,16 @@ class FirestoreDocumentRepository(DocumentRepository):
             return self._to_english_document(doc.to_dict())
         return None
 
+    def get_document_by_draft_id(self, draft_id: str) -> Optional[SourceDocument]:
+        query = self.docs_collection.where("id_borrador", "==", draft_id).limit(1)
+        results = query.get()
+        for doc in results:
+            data = doc.to_dict()
+            english_doc = self._to_english_document(data)
+            english_doc.id = doc.id
+            return english_doc
+        return None
+
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         if not chunks:
             return
@@ -98,13 +129,12 @@ class FirestoreDocumentRepository(DocumentRepository):
                 "fecha_documento": spanish_parent.get("fecha_documento"),
                 "id_borrador": spanish_parent.get("id_borrador"),
                 "nombre_archivo": spanish_parent.get("nombre_archivo"),
-                "url_archivo_respuesta": spanish_parent.get("url_archivo_respuesta"),
+                "nombre_objeto": spanish_parent.get("nombre_objeto"),
+                "url_respuesta": spanish_parent.get("url_respuesta"),
             }
-            url_origen = spanish_parent.get("url_origen")
             url_recibido = spanish_parent.get("url_recibido")
         else:
             spanish_meta = {}
-            url_origen = None
             url_recibido = None
 
         # Using batch for performance
@@ -127,7 +157,6 @@ class FirestoreDocumentRepository(DocumentRepository):
                 "id_documento": chunk.document_id,
                 "asunto": chunk.subject,
                 "texto": f"{chunk.subject}\n{chunk.body}",  # mix of subject and body
-                "url_origen": url_origen,
                 "url_recibido": url_recibido,
                 **spanish_meta,
                 **flattened_meta,
@@ -140,10 +169,18 @@ class FirestoreDocumentRepository(DocumentRepository):
         batch.commit()
 
     def _to_spanish_dict(self, document: SourceDocument) -> dict:
+        url_recibido = document.metadata.get("url_recibido") or document.source_url
+        if url_recibido and not url_recibido.startswith("gs://"):
+            url_recibido = None
+
+        url_respuesta = document.response_file_url
+        if url_respuesta and not url_respuesta.startswith("gs://"):
+            url_respuesta = None
+
         spanish_meta = {
             "frente_trabajo": document.work_front,
             "fecha_documento": document.document_date,
-            "url_archivo_respuesta": document.response_file_url,
+            "url_respuesta": url_respuesta,
             "id_borrador": document.draft_id,
         }
 
@@ -158,25 +195,34 @@ class FirestoreDocumentRepository(DocumentRepository):
         type_map = {DocumentType.RECEIVED: "RECIBIDO", DocumentType.SENT: "ENVIADO"}
         type_es = type_map.get(document.document_type, "ENVIADO")
 
-        url_recibido = document.metadata.get("url_recibido")
+        # Priority: 1. explicit metadata, 2. object_name (from DB), 3. filename
+        nombre_objeto = document.metadata.get("codigo_comunicado")
+        if not nombre_objeto:
+            # If reading from DB, object_name holds the official code
+            if document.object_name and not document.object_name.startswith("TMP_"):
+                nombre_objeto = document.object_name
+            else:
+                nombre_objeto = document.filename
+
+        if nombre_objeto and nombre_objeto.lower().endswith(".pdf"):
+            nombre_objeto = nombre_objeto[:-4]
 
         spanish_data = {
             "id": document.id,
             "nombre_archivo": document.filename,
-            "nombre_objeto": document.object_name[:-4] if document.object_name.lower().endswith(".pdf") else document.object_name,
+            "nombre_objeto": nombre_objeto,
             "tipo_contenido": document.content_type,
             "tamano_bytes": document.size_bytes,
             "creado_en": document.created_at,
             "estado": status_es,
             "tipo_documento": type_es,
-            "url_origen": document.source_url,
             "url_recibido": url_recibido,
             **spanish_meta,
         }
 
         # Translate metadata keys to Spanish and flatten directly in the root
         for k, v in document.metadata.items():
-            if k in ["url_recibido", "url_enviado"]:
+            if k in ["url_recibido", "url_enviado", "url_origen", "codigo_comunicado"]:
                 continue
             translated_key = {
                 "extracted_text": "texto_extraido",
@@ -202,9 +248,9 @@ class FirestoreDocumentRepository(DocumentRepository):
 
         standard_keys = {
             "id", "nombre_archivo", "nombre_objeto", "tipo_contenido", "tamano_bytes",
-            "creado_en", "estado", "tipo_documento", "url_origen", "url_recibido",
+            "creado_en", "estado", "tipo_documento", "url_recibido",
             "frente_trabajo", "fecha_documento",
-            "url_archivo_respuesta", "id_borrador"
+            "url_respuesta", "id_borrador"
         }
 
         metadata = {}
@@ -234,10 +280,10 @@ class FirestoreDocumentRepository(DocumentRepository):
             created_at=spanish_data.get("creado_en"),
             status=status_en,
             document_type=type_en,
-            source_url=spanish_data.get("url_origen"),
+            source_url=spanish_data.get("url_recibido"),
             work_front=spanish_data.get("frente_trabajo", "GENERAL"),
             document_date=spanish_data.get("fecha_documento", "UNKNOWN"),
-            response_file_url=spanish_data.get("url_archivo_respuesta"),
+            response_file_url=spanish_data.get("url_respuesta"),
             draft_id=spanish_data.get("id_borrador"),
             metadata=metadata,
         )
@@ -274,6 +320,29 @@ class RoutingFirestoreDocumentRepository(DocumentRepository):
         if document.document_type == DocumentType.RECEIVED:
             repo = self.received_repo
         else:
+            try:
+                from unittest.mock import MagicMock
+                # Query RECEIVED doc by draft ID since Firestore IDs are dynamically generated
+                query = self.received_repo.docs_collection.where("id_borrador", "==", document.draft_id).limit(1)
+                results = query.get()
+                rec_doc = None
+                for doc_snap in results:
+                    rec_doc = self.received_repo._to_english_document(doc_snap.to_dict())
+                    rec_doc.id = doc_snap.id
+                    break
+                
+                if rec_doc and not isinstance(rec_doc, MagicMock):
+                    # 1. Update the SENT document's url_recibido with GCS URL of RECEIVED doc
+                    if rec_doc.source_url and rec_doc.source_url.startswith("gs://"):
+                        document.metadata["url_recibido"] = rec_doc.source_url
+                    
+                    # 2. Update the corresponding RECEIVED document's url_respuesta with SENT doc GCS URL
+                    if document.response_file_url and document.response_file_url.startswith("gs://"):
+                        rec_doc.response_file_url = document.response_file_url
+                        self.received_repo.save_document(rec_doc)
+                        logger.info(f"Cross-updated RECEIVED document {rec_doc.id} url_respuesta to {document.response_file_url}")
+            except Exception as e:
+                logger.exception(f"Could not perform GCS URL cross-update: {e}")
             repo = self.sent_repo
         repo.save_document(document)
 
@@ -310,6 +379,12 @@ class RoutingFirestoreDocumentRepository(DocumentRepository):
         if doc:
             return doc
         return self.sent_repo.get_document_by_object_name(object_name)
+
+    def get_document_by_draft_id(self, draft_id: str) -> Optional[SourceDocument]:
+        doc = self.received_repo.get_document_by_draft_id(draft_id)
+        if doc:
+            return doc
+        return self.sent_repo.get_document_by_draft_id(draft_id)
 
     def save_chunks(self, chunks: List[DocumentChunk]) -> None:
         if not chunks:

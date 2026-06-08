@@ -58,11 +58,16 @@ def _make_payload(source_url: str = None, doc_type: DocumentType = DocumentType.
 class TestDriveDownloaderIntegration:
     """Tests that DriveDownloader correctly delegates to the Google API client."""
 
+    @patch("google.cloud.storage.Client")
     @patch("src.filters.drive_downloader.MediaIoBaseDownload")
     @patch("src.filters.drive_downloader.build")
     @patch("src.infrastructure.auth.google_drive.service_account")
-    def test_downloads_file_successfully(self, mock_sa, mock_build, mock_dl_cls):
+    def test_downloads_file_successfully(self, mock_sa, mock_build, mock_dl_cls, mock_gcs_client):
         """Given a valid Drive URL, the filter downloads the binary content."""
+        # Arrange: mock GCS Storage Client
+        mock_gcs = mock_gcs_client.return_value
+        mock_gcs.bucket.return_value.list_blobs.return_value = []
+
         # Arrange: mock credentials
         mock_sa.Credentials.from_service_account_file.return_value = MagicMock()
 
@@ -97,7 +102,7 @@ class TestDriveDownloaderIntegration:
         result = downloader.process(payload)
 
         # Assert
-        assert result.document.filename == "downloaded.pdf"
+        assert result.document.filename == "downloaded"
         assert result.document.content_type == "application/pdf"
 
     @patch("src.filters.drive_downloader.build")

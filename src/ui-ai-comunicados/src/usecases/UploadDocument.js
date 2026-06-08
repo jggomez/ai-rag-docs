@@ -1,4 +1,4 @@
-import { uploadFileToGCS, ingestReceivedDocument } from '../infrastructure/api/ApiRepository.js';
+import { uploadFileToGCS, ingestReceivedDocument, ingestSentDocument } from '../infrastructure/api/ApiRepository.js';
 
 /**
  * Execute the upload-and-ingest workflow.
@@ -7,16 +7,21 @@ import { uploadFileToGCS, ingestReceivedDocument } from '../infrastructure/api/A
  * @returns {Promise<{uploadResult: object, ingestResult: object}>}
  */
 export async function executeUploadDocument(file, metadata) {
-  // Step 1: Upload file to GCS
-  const uploadResult = await uploadFileToGCS(file);
+  const documentType = metadata.documentType || 'received';
 
-  // Step 2: Trigger the metadata ingestion pipeline
-  const ingestResult = await ingestReceivedDocument({
+  // Step 1: Upload file to GCS with date and type for folder organization
+  const uploadResult = await uploadFileToGCS(file, metadata.documentDate, documentType);
+
+  // Step 2: Select the correct ingestion method
+  const ingestMethod = documentType === 'sent' ? ingestSentDocument : ingestReceivedDocument;
+
+  // Step 3: Trigger the metadata ingestion pipeline
+  const ingestResult = await ingestMethod({
     workFront: metadata.workFront,
     documentDate: metadata.documentDate,
     idBorrador: metadata.idBorrador,
-    filename: uploadResult.filename,
-    documentType: metadata.documentType || 'received',
+    codDocument: metadata.codDocument,
+    documentType: documentType,
     urlDoc: uploadResult.gcs_url,
   });
 

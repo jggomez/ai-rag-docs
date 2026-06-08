@@ -7,8 +7,8 @@ export function uploadView() {
   
   container.innerHTML = `
     <div class="mb-10">
-      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight">Upload Received Document</h2>
-      <p class="text-slate-500 font-medium mt-2">Submit a new incoming communication to the high-performance processing pipeline.</p>
+      <h2 class="text-3xl font-extrabold text-slate-900 tracking-tight">Upload Document</h2>
+      <p class="text-slate-500 font-medium mt-2">Submit a new communication to the high-performance processing pipeline.</p>
     </div>
 
     <div class="glass-panel rounded-2xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden">
@@ -42,6 +42,14 @@ export function uploadView() {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
           <div class="space-y-1.5">
+            <label class="card-label">Document Type</label>
+            <div class="flex p-1 bg-slate-100 rounded-xl">
+              <button type="button" id="btn-received" class="flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200">RECEIVED</button>
+              <button type="button" id="btn-sent" class="flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 text-slate-500 hover:text-slate-700">SENT</button>
+            </div>
+            <input type="hidden" id="document_type" value="received">
+          </div>
+          <div class="space-y-1.5">
             <label class="card-label">ID Borrador</label>
             <input type="text" id="id_borrador" class="input-field" placeholder="e.g. 76857089" required>
           </div>
@@ -50,15 +58,8 @@ export function uploadView() {
             <input type="text" id="work_front" class="input-field" placeholder="e.g. Descarga intermedia" required>
           </div>
           <div class="space-y-1.5">
-            <label class="card-label">Filename</label>
-            <input type="text" id="filename" class="input-field" placeholder="e.g. CYS-CW276532-PHI-03362.pdf" required>
-          </div>
-          <div class="space-y-1.5">
-            <label class="card-label">Document Type</label>
-            <select id="document_type" class="input-field" required>
-              <option value="received" selected>Received</option>
-              <option value="sent">Sent</option>
-            </select>
+            <label class="card-label">Codigo Doc</label>
+            <input type="text" id="filename" class="input-field" placeholder="e.g. CYS-CW276532-PHI-03362" required>
           </div>
           <div class="space-y-1.5 md:col-span-2">
             <label class="card-label">Document Date</label>
@@ -96,6 +97,23 @@ export function uploadView() {
     const statusAlert = document.getElementById('status-alert');
     const submitBtn = document.getElementById('submit-btn');
 
+    // Document Type Toggle Logic
+    const btnReceived = document.getElementById('btn-received');
+    const btnSent = document.getElementById('btn-sent');
+    const documentTypeInput = document.getElementById('document_type');
+
+    btnReceived.addEventListener('click', () => {
+      documentTypeInput.value = 'received';
+      btnReceived.className = 'flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200';
+      btnSent.className = 'flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 text-slate-500 hover:text-slate-700';
+    });
+
+    btnSent.addEventListener('click', () => {
+      documentTypeInput.value = 'sent';
+      btnSent.className = 'flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200';
+      btnReceived.className = 'flex-1 py-2 text-xs font-bold rounded-lg transition-all duration-200 text-slate-500 hover:text-slate-700';
+    });
+
     fileInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
         const selectedName = e.target.files[0].name;
@@ -126,24 +144,35 @@ export function uploadView() {
           workFront: document.getElementById('work_front').value.trim(),
           documentDate: document.getElementById('doc_date').value.trim(),
           idBorrador: document.getElementById('id_borrador').value.trim(),
+          codDocument: document.getElementById('filename').value.trim(),
           documentType: document.getElementById('document_type').value,
         };
 
         const { ingestResult } = await executeUploadDocument(file, metadata);
 
+        // Handle nested response structure from backend
+        const docInfo = ingestResult.received_document || ingestResult.sent_document || {};
+        const docId = docInfo.document_id || 'N/A';
+        const docName = docInfo.filename || 'N/A';
+        const officialCode = docInfo.cod_document || 'N/A';
+
         const details = `
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
             <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
               <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Document ID</span>
-              <p class="font-bold text-slate-900">${ingestResult.document_id || 'N/A'}</p>
+              <p class="font-bold text-slate-900">${docId}</p>
             </div>
             <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
               <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Status</span>
               <p class="font-bold text-slate-900">${ingestResult.status || 'N/A'}</p>
             </div>
-            <div class="p-3 bg-white/50 rounded-lg border border-indigo-100 sm:col-span-2">
+            <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
+              <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Codigo Doc</span>
+              <p class="font-bold text-slate-900">${officialCode}</p>
+            </div>
+            <div class="p-3 bg-white/50 rounded-lg border border-indigo-100">
               <span class="text-[10px] uppercase font-bold text-indigo-500 block mb-1">Filename</span>
-              <p class="font-bold text-slate-900">${ingestResult.filename || 'N/A'}</p>
+              <p class="font-bold text-slate-900">${docName}</p>
             </div>
           </div>
         `;

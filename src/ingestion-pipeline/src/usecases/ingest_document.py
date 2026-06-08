@@ -30,11 +30,16 @@ class IngestDocumentCommand:
         doc = SourceDocumentFactory.create_from_gcs_event(event_data)
         return self._run_pipeline(doc)
 
-    def execute_batch(self, csv_metadata_repo: CSVMetadataRepository) -> Dict[str, Any]:
+    def execute_batch(
+        self, csv_metadata_repo: CSVMetadataRepository, limit: Optional[int] = None
+    ) -> Dict[str, Any]:
         """Orchestrate batch ingestion from CSV."""
-        logger.info("Starting batch ingestion from CSV repository")
-        
+        logger.info(f"Starting batch ingestion from CSV repository (limit={limit})")
+
         rows = csv_metadata_repo.get_all_rows()
+        if limit is not None and limit > 0:
+            rows = rows[:limit]
+
         processed_count = 0
         failed_count = 0
         
