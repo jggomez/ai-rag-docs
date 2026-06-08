@@ -14,7 +14,7 @@ from src.usecases.response_generator import ResponseGenerator
 def generator():
     """Creates a ResponseGenerator with mocked Gemini client."""
     with patch("src.usecases.response_generator.genai.Client") as mock_client_class:
-        gen = ResponseGenerator(api_key="fake-key", model_name="gemini-2.5-flash")
+        gen = ResponseGenerator(api_key="fake-key", model_name="gemini-3-flash-preview")
         mock_client = mock_client_class.return_value
 
         # Default mock response
@@ -74,7 +74,7 @@ class TestResponseGenerator:
             similar_chunks=[], sent_texts={}, metadata={},
         )
         call_kwargs = mock_client.models.generate_content.call_args.kwargs
-        assert call_kwargs["model"] == "gemini-2.5-flash"
+        assert call_kwargs["model"] == "gemini-3-flash-preview"
 
     def test_format_similar_chunks_empty(self, generator):
         gen, _ = generator
