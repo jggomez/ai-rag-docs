@@ -88,14 +88,16 @@ graph TD
 
 ## 🆔 Document Identification & Linking
 
-| Identifier | Purpose | Firestore Field |
-|---|---|---|
-| **Draft ID** | Technical link between Received and Sent pairs. | `id_borrador` |
-| **Official Code** | User-facing identifier (e.g. REC-001). | `nombre_objeto` |
-| **Filename** | Physical file name in storage. | `nombre_archivo` |
+The system maintains perfect traceability between documents using technical and user-facing identifiers:
 
-- **RAG Exclusion:** When generating a response for `ID: 1111`, the system retrieves chunks from **other** documents, strictly excluding chunks where `id_borrador == 1111`.
-- **Response Resolution:** For every similar chunk found, the system queries the `docs-enviados` collection by `id_borrador` to find the actual historical response.
+| Identifier | Purpose | Firestore Field | Source Column (CSV) |
+|---|---|---|---|
+| **Draft ID** | Technical link. Connects a received letter to its answer. | `id_borrador` | `Id borradores` |
+| **Official Code** | User identity. Code entered in the UI. | `nombre_objeto` | `Recibidas` / `Enviadas` |
+| **File Name** | Real name of the document in the storage. | `nombre_archivo` | Extracted from URL |
+
+- **Exclusion Rule:** To ensure high-quality RAG, the system **always excludes** the document being answered (based on `id_borrador`) from the search results.
+- **Cross-Collection Link:** For every relevant chunk found in `docs-recibidos`, the system automatically resolves the corresponding response in `docs-enviados` using the `id_borrador`.
 
 ---
 
@@ -103,35 +105,29 @@ graph TD
 
 ### Ingestion Pipeline (:8080)
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/api/v1/upload` | `POST` | Uploads file to date-partitioned GCS folder. Returns `gcs_url`. |
-| `/api/v1/ingestdocumentreceived` | `POST` | Ingests a received doc. Uses Gemini OCR. |
-| `/api/v1/ingestdocumentsent` | `POST` | Ingests a sent doc. Uses PDF Reader. |
-| `/api/v1/ingest/batch` | `POST` | Ingests from `Comunicaciones.csv`. Supports `?limit=N`. |
-| `/api/v1/generatedocsent` | `POST` | Executes RAG cycle and returns DOCX URL. |
+*   **`POST /api/v1/upload`**: Uploads a local file to GCS. It automatically creates a folder structure based on the `document_date` (YYYY-MM-DD) and `document_type`. Returns the GCS URL for downstream ingestion.
+*   **`POST /api/v1/ingestdocumentreceived`**: Triggers the ingestion for a received document. It uses **Gemini 2.5 Flash OCR** to extract text from images/scans and extracts engineering metadata.
+*   **`POST /api/v1/ingestdocumentsent`**: Triggers the ingestion for a sent document. It uses a **Native PDF Reader** strategy for high-fidelity extraction of digital documents.
+*   **`POST /api/v1/ingest/batch`**: Scans the local `Comunicaciones.csv` and ingests all rows. Supports a `?limit=N` parameter for testing specific subsets.
+*   **`POST /api/v1/generatedocsent`**: The RAG orchestrator. It takes a received document code, performs a tiered fallback search, reranks results with **TinyBERT**, and returns a generated `.docx` response URL.
 
 ### Agent Communications (:8000)
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/run` | `POST` | Main ADK endpoint for chat interactions. |
-| `/health` | `GET` | Health status. |
+*   **`POST /run`**: The main conversational entry point. It accepts natural language queries, reasons about them, and uses the `search_communications` tool to provide cited answers from the document database.
 
 ---
 
 ## 🧪 Reranker & Models
 
 - **Embedding:** `models/embedding-001` (768 dimensions).
-- **Reranker:** `ms-marco-TinyBERT-L-2-v2` via **FlashRank** (Unified across Agent and Pipeline).
-- **OCR/Extraction:** `gemini-2.5-flash`.
-- **Generation:** `gemini-2.5-flash` (with specific engineering context instructions).
+- **Reranker:** `ms-marco-TinyBERT-L-2-v2` via **FlashRank**. Provides semantic re-ordering of top 20 search results to improve context quality.
+- **Resilience:** If the cross-encoder fails, the system automatically falls back to original vector relevance to ensure service availability.
 
 ---
 
 ## 📖 Setup & Development
 
-See the specific READMEs for detailed installation steps:
-- [Ingestion Pipeline Documentation](src/ingestion-pipeline/README.md)
-- [Agent Communications Documentation](src/agent-communications/README.md)
-- [UI Frontend Documentation](src/ui-ai-comunicados/README.md)
+Detailed technical specifications are available in the sub-service directories:
+- [Ingestion Pipeline Technical Guide](src/ingestion-pipeline/README.md)
+- [Agent Communications Technical Guide](src/agent-communications/README.md)
+- [UI Frontend Guide](src/ui-ai-comunicados/README.md)

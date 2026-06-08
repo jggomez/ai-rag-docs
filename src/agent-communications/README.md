@@ -33,8 +33,11 @@ graph TD
 The core tool that powers the agent's knowledge.
 
 1.  **Stage 1: Intent Mapping**: Converts natural language dates (e.g., "mayo 2025") and places (e.g., "Casa de Máquinas") into query parameters.
-2.  **Stage 2: Hybrid Lookup**: Uses tiered Firestore queries (Code -> Asunto -> Vector).
-3.  **Stage 3: Cross-Encoder Reranking**: Re-orders the top 20 candidates using the `ms-marco-TinyBERT-L-2-v2` model.
+2.  **Stage 2: Hybrid Lookup**: Uses tiered Firestore queries:
+    *   `code_only`: Searches strictly by `nombre_objeto`.
+    *   `subject_only`: Searches by `asunto` keyword.
+    *   `vector_only`: Pure semantic vector search.
+3.  **Stage 3: Cross-Encoder Reranking**: Re-orders the top 20 candidates using the `ms-marco-TinyBERT-L-2-v2` model to improve semantic relevance.
 4.  **Stage 4: Traceability Link**: Automatically queries the `docs-enviados` collection using the `id_borrador` of the found chunks to find the official response.
 
 ---
@@ -43,11 +46,23 @@ The core tool that powers the agent's knowledge.
 
 The agent is exposed via the ADK FastAPI wrapper.
 
-### Main Execution
-**`POST /run`**
-Executes a conversational turn.
-*   **Payload:** Standard ADK Agent request.
-*   **Response:** Agent turn output with tools calls and text response.
+### 1. Conversational Run (`POST /run`)
+Executes a reasoning turn for the AI Agent. This is the endpoint called by the chat UI.
+
+*   **Request Payload**:
+    ```json
+    {
+      "user_input": "Busca el documento REC-001 y dime si ya se respondió.",
+      "session_id": "optional-uuid"
+    }
+    ```
+*   **Success Response**: A structured JSON containing the agent's thoughts, the tools it called, and the final response text.
+*   **Logic**:
+    1.  Extracts the document code "REC-001".
+    2.  Invokes `search_communications(document_code="REC-001")`.
+    3.  Finds the chunk with `nombre_objeto="REC-001"`.
+    4.  Retrieves the linked sent document via its `id_borrador`.
+    5.  Synthesizes the final answer.
 
 ---
 
