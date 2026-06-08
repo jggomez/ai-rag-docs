@@ -125,6 +125,16 @@ The system maintains perfect traceability between documents using technical and 
 
 ---
 
+## 📈 System Health & Quality
+
+| Component | Test Status | Code Coverage |
+|---|---|---|
+| **Ingestion Pipeline** | ✅ 108 Passed | 79% |
+| **Agent Communications** | ✅ 10 Passed | 50% |
+| **UI Frontend** | ✅ Build OK | N/A |
+
+---
+
 ## 📖 Setup & Development
 
 Detailed technical specifications are available in the sub-service directories:
