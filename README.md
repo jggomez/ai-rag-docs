@@ -46,7 +46,7 @@ sequenceDiagram
     participant User as UI/User
     participant API as Ingestion API
     participant GCS as Cloud Storage
-    participant Gemini as Gemini 2.5 Flash
+    participant Gemini as Gemini 3 Flash
     participant DB as Firestore (docs-recibidos/enviados)
 
     User->>API: POST /api/v1/upload (File + Metadata)
@@ -106,7 +106,7 @@ The system maintains perfect traceability between documents using technical and 
 ### Ingestion Pipeline (:8080)
 
 *   **`POST /api/v1/upload`**: Uploads a local file to GCS. It automatically creates a folder structure based on the `document_date` (YYYY-MM-DD) and `document_type`. Returns the GCS URL for downstream ingestion.
-*   **`POST /api/v1/ingestdocumentreceived`**: Triggers the ingestion for a received document. It uses **Gemini 2.5 Flash OCR** to extract text from images/scans and extracts engineering metadata.
+*   **`POST /api/v1/ingestdocumentreceived`**: Triggers the ingestion for a received document. It uses **Gemini 3 Flash OCR** to extract text from images/scans and extracts engineering metadata.
 *   **`POST /api/v1/ingestdocumentsent`**: Triggers the ingestion for a sent document. It uses a **Native PDF Reader** strategy for high-fidelity extraction of digital documents.
 *   **`POST /api/v1/ingest/batch`**: Scans the local `Comunicaciones.csv` and ingests all rows. Supports a `?limit=N` parameter for testing specific subsets.
 *   **`POST /api/v1/generatedocsent`**: The RAG orchestrator. It takes a received document code, performs a tiered fallback search, reranks results with **TinyBERT**, and returns a generated `.docx` response URL.
@@ -130,4 +130,6 @@ The system maintains perfect traceability between documents using technical and 
 Detailed technical specifications are available in the sub-service directories:
 - [Ingestion Pipeline Technical Guide](src/ingestion-pipeline/README.md)
 - [Agent Communications Technical Guide](src/agent-communications/README.md)
+- [UI Frontend Guide](src/ui-ai-comunicados/README.md)
+ Technical Guide](src/agent-communications/README.md)
 - [UI Frontend Guide](src/ui-ai-comunicados/README.md)

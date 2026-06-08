@@ -211,5 +211,8 @@ The primary endpoint for generating draft responses based on historical context.
 ### Robust RAG Fallback
 The `generatedocsent` endpoint implements a 4-stage fallback logic to ensure the IA always has context, even if strict filters return zero results.
 
+### Unified Engine
+The system is standardized on **`gemini-3-flash-preview`** for all reasoning, extraction (OCR), and synthesis tasks to ensure maximum intelligence and consistency.
+
 ### Semantic Reranking
 Uses **FlashRank** with `ms-marco-TinyBERT-L-2-v2`. If the ONNX inference fails for any reason, the system automatically falls back to the original vector search relevance to ensure zero downtime.
