@@ -31,7 +31,7 @@ class TestApiIngest(unittest.TestCase):
         self.assertEqual(result["total_records"], 2)
         
         # Verify execute_batch was called with the repo
-        mock_command.execute_batch.assert_called_once_with(mock_repo)
+        mock_command.execute_batch.assert_called_once_with(mock_repo, limit=None)
 
     @patch("src.main.ingest_command")
     def test_ingest_batch_error(self, mock_command):
@@ -60,9 +60,12 @@ class TestApiIngest(unittest.TestCase):
         
         # Verify the mock repository was called with correct bucket & prefix
         from src.config import settings
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y-%m-%d")
+
         mock_storage_repo.upload_file.assert_called_once_with(
             bucket_name=settings.gcs_communications_bucket,
-            object_name=f"{settings.gcs_received_prefix}test.pdf",
+            object_name=f"{settings.gcs_received_prefix}{date_str}/test.pdf",
             content=b"pdf content",
             content_type="application/pdf"
         )

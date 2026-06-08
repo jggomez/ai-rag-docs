@@ -57,7 +57,7 @@ class TestRetrieveAndGenerateCommand:
 
         # Mock document repo
         mock_document_repo = MagicMock()
-        mock_document_repo.get_document.return_value = doc
+        mock_document_repo.get_document_by_draft_id.return_value = doc
         mock_document_repo.get_document_by_object_name.return_value = doc
 
         # Mock vector repo
@@ -86,7 +86,7 @@ class TestRetrieveAndGenerateCommand:
         cmd._generate_query_embedding = MagicMock(return_value=[0.1] * 768)
 
         # 1. Test execute with id_documento_recibido
-        result = cmd.execute(id_documento_recibido="test-doc")
+        result = cmd.execute(id_documento_recibido="76857089")
 
         assert "docx_bytes" in result
         assert result["similar_count"] == 1
@@ -94,16 +94,16 @@ class TestRetrieveAndGenerateCommand:
         assert result["subject"] == "Test Subject"
         assert "gcs_url" in result
 
-        mock_document_repo.get_document.assert_called_once_with("test-doc")
+        mock_document_repo.get_document_by_draft_id.assert_called_once_with("76857089")
         assert mock_document_repo.save_document.call_count == 0
 
         # 2. Test execute with cod_comunicado_recibido
-        mock_document_repo.get_document.reset_mock()
-        mock_document_repo.get_document.return_value = None
+        mock_document_repo.get_document_by_draft_id.reset_mock()
+        mock_document_repo.get_document_by_draft_id.return_value = None
         mock_document_repo.save_document.reset_mock()
 
         result = cmd.execute(cod_comunicado_recibido="REC-001")
-        mock_document_repo.get_document.assert_not_called()
+        mock_document_repo.get_document_by_draft_id.assert_not_called()
         mock_document_repo.get_document_by_object_name.assert_called_once_with("REC-001")
         assert mock_document_repo.save_document.call_count == 0
 
@@ -111,10 +111,11 @@ class TestRetrieveAndGenerateCommand:
         self, MockEmbedder, MockResponseGen, MockVectorRepo, MockStorage, mock_settings
     ):
         mock_document_repo = MagicMock()
-        mock_document_repo.get_document.return_value = None
+        mock_document_repo.get_document_by_draft_id.return_value = None
         mock_document_repo.get_document_by_object_name.return_value = None
 
         cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
+        cmd._generate_query_embedding = MagicMock(return_value=[0.1] * 768)
 
         with pytest.raises(ValueError, match="No ingested received document found matching"):
             cmd.execute(id_documento_recibido="nonexistent-id")
@@ -125,9 +126,10 @@ class TestRetrieveAndGenerateCommand:
         doc = _make_document(metadata={"extracted_text": None})
 
         mock_document_repo = MagicMock()
-        mock_document_repo.get_document.return_value = doc
+        mock_document_repo.get_document_by_draft_id.return_value = doc
 
         cmd = RetrieveAndGenerateCommand(mock_settings, mock_document_repo)
+        cmd._generate_query_embedding = MagicMock(return_value=[0.1] * 768)
 
         with pytest.raises(ValueError, match="does not contain extracted_text"):
             cmd.execute(id_documento_recibido="test-doc")
@@ -138,7 +140,7 @@ class TestRetrieveAndGenerateCommand:
         doc = _make_document(work_front="ACME Front")
 
         mock_document_repo = MagicMock()
-        mock_document_repo.get_document.return_value = doc
+        mock_document_repo.get_document_by_draft_id.return_value = doc
 
         vector_repo = MockVectorRepo.return_value
         vector_repo.find_similar_chunks.return_value = []
@@ -159,5 +161,5 @@ class TestRetrieveAndGenerateCommand:
 
         call_kwargs = vector_repo.find_similar_chunks.call_args.kwargs
         assert call_kwargs["work_front"] == "ACME Front"
-        # Exclusion code should match document.object_name
-        assert call_kwargs["codcomunicadorecibido"] == "test.pdf"
+        # Exclusion code should match document.draft_id
+        assert call_kwargs["exclude_draft_id"] == "76857089"

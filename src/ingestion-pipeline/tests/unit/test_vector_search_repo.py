@@ -54,21 +54,21 @@ class TestBuildFilterStages:
     """Verify the progressive fallback stage construction."""
 
     def test_work_front_present(self, repo):
-        stages = repo._build_filter_stages("Descarga")
+        stages = repo._build_robust_fallback_stages("Descarga")
         stage_names = [s[0] for s in stages]
         assert stage_names == [
-            "frente_trabajo",
-            "vector_only",
+            "front_only",
+            "global_vector",
         ]
 
     def test_no_filters(self, repo):
-        stages = repo._build_filter_stages(None)
+        stages = repo._build_robust_fallback_stages(None)
         assert len(stages) == 1
-        assert stages[0][0] == "vector_only"
+        assert stages[0][0] == "global_vector"
         assert stages[0][1] == []
 
     def test_stage_filter_values_are_correct(self, repo):
-        stages = repo._build_filter_stages("Front-A")
+        stages = repo._build_robust_fallback_stages("Front-A")
         _, filters = stages[0]
         assert filters == [
             ("frente_trabajo", "==", "Front-A"),
@@ -76,19 +76,19 @@ class TestBuildFilterStages:
 
     def test_empty_string_treated_as_falsy(self, repo):
         """Empty strings should be treated like None (no filter)."""
-        stages = repo._build_filter_stages("")
+        stages = repo._build_robust_fallback_stages("")
         assert len(stages) == 1
-        assert stages[0][0] == "vector_only"
+        assert stages[0][0] == "global_vector"
 
     def test_front_and_dates(self, repo):
         """Verify fallback stages and filters when both front and dates are supplied."""
-        stages = repo._build_filter_stages("Front-A", start_date="2025-01-01", end_date="2025-01-31")
+        stages = repo._build_robust_fallback_stages("Front-A", start_date="2025-01-01", end_date="2025-01-31")
         stage_names = [s[0] for s in stages]
         assert stage_names == [
             "front_and_date",
-            "frente_trabajo",
+            "front_only",
             "date_only",
-            "vector_only",
+            "global_vector",
         ]
         
         # Check filters for front_and_date
@@ -225,34 +225,21 @@ class TestFindSimilarChunks:
         find_nearest_call = mock_query.find_nearest.call_args
         assert find_nearest_call.kwargs["limit"] == 5
 
-    def test_excludes_matching_codcomunicadorecibido(self, repo, fake_vector):
-        """Chunks matching codcomunicadorecibido are filtered out in-memory."""
+    def test_excludes_matching_draft_id(self, repo, fake_vector):
+        """Chunks matching exclude_draft_id are filtered out in-memory."""
         chunks = [
-            _make_chunk_snapshot({"texto": "Keep this", "id_borrador": "draft_A", "nombre_archivo": "keep.pdf", "id_documento": "doc_keep"}, "chunk_1"),
-            _make_chunk_snapshot({"texto": "Exclude draft", "id_borrador": "76857089", "nombre_archivo": "ex.pdf", "id_documento": "doc_ex"}, "chunk_2"),
-            _make_chunk_snapshot({"texto": "Exclude name", "id_borrador": "draft_C", "nombre_archivo": "REC-001.pdf", "id_documento": "doc_ex2"}, "chunk_3"),
-            _make_chunk_snapshot({"texto": "Exclude doc_id", "id_borrador": "draft_D", "nombre_archivo": "ex3.pdf", "id_documento": "doc_ex_id"}, "chunk_4"),
+            _make_chunk_snapshot({"texto": "Keep this", "id_borrador": "draft_A"}, "chunk_1"),
+            _make_chunk_snapshot({"texto": "Exclude this", "id_borrador": "76857089"}, "chunk_2"),
         ]
 
         mock_query = MagicMock()
         mock_query.find_nearest.return_value.get.return_value = chunks
         repo.chunks_collection = mock_query
 
-        # Mock collection documents query for matching IDs
-        mock_doc_obj = MagicMock()
-        mock_doc_obj.id = "doc_ex_id"
-        mock_doc_obj.to_dict.return_value = {"nombre_objeto": "REC-001"}
-        repo.client_received.collection.return_value.where.return_value.limit.return_value.get.return_value = [mock_doc_obj]
-
-        # Test case 1: filter by draft_id "76857089"
-        results1 = repo.find_similar_chunks(query_vector=fake_vector, codcomunicadorecibido="76857089")
-        assert len(results1) == 2
-        assert results1[0]["texto"] == "Keep this"
-
-        # Test case 2: filter by nombre_archivo "REC-001"
-        results2 = repo.find_similar_chunks(query_vector=fake_vector, codcomunicadorecibido="REC-001")
-        assert len(results2) == 2
-        assert results2[0]["texto"] == "Keep this"
+        # Filter by draft_id "76857089"
+        results = repo.find_similar_chunks(query_vector=fake_vector, exclude_draft_id="76857089")
+        assert len(results) == 1
+        assert results[0]["texto"] == "Keep this"
 
 
 # ---------------------------------------------------------------------------

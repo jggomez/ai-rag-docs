@@ -216,3 +216,16 @@ The system is standardized on **`gemini-3-flash-preview`** for all reasoning, ex
 
 ### Semantic Reranking
 Uses **FlashRank** with `ms-marco-TinyBERT-L-2-v2`. If the ONNX inference fails for any reason, the system automatically falls back to the original vector search relevance to ensure zero downtime.
+
+---
+
+## 📊 Code Coverage
+
+Última actualización de métricas de cobertura (Unit Tests):
+
+* `embedder.py`: **96% Cobertura**
+* `document_repo.py`: **60% Cobertura**
+* `vector_search_repo.py`: **81% Cobertura**
+* `retrieve_and_generate.py`: **90% Cobertura**
+* `docx_generator.py`: **99% Cobertura**
+* **Total Proyecto**: **79% Cobertura**
