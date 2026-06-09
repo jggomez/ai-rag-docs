@@ -38,9 +38,9 @@ steps:
       - '1Gi'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'PROJECT_ID=devhack-3f0c2,DB_RECEIVED=docs-recibidos,DB_SENT=docs-enviados,EMBEDDING_MODEL=gemini-embedding-2,ALLOW_ORIGINS=*'
+      - 'PROJECT_ID=devhack-3f0c2,DB_RECEIVED=docs-recibidos,DB_SENT=docs-enviados,EMBEDDING_MODEL=gemini-embedding-2,ALLOW_ORIGINS=*,ENABLE_MLFLOW=false'
       - '--set-secrets'
-      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
+      - 'GEMINI_API_KEY=GOOGLE_GENAI_API_KEY:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/agent-communications:latest'

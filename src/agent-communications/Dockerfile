@@ -42,6 +42,9 @@ ENV AGENT_VERSION=${AGENT_VERSION}
 
 EXPOSE 8080
 
+ENV PATH="/code/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
 USER appuser
 
-CMD ["uv", "run", "uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "app.fast_api_app:app", "--host", "0.0.0.0", "--port", "8080"]

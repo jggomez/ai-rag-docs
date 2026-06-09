@@ -40,9 +40,9 @@ steps:
       - '2Gi'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=devhack-3f0c2,GOOGLE_CLOUD_PROJECT=devhack-3f0c2,GCP_REGION=us-central1,GCS_INGESTION_BUCKET=communications-cys,GCS_RECEIVED_PREFIX=COMMUNICATIONS_RECEIVED/,GCS_SENT_PREFIX=COMMUNICATIONS_SENT/,FIRESTORE_DATABASE=(default),EMBEDDING_MODEL=gemini-embedding-2,OCR_MODEL=gemini-3-flash-preview,LOG_LEVEL=INFO,FIRESTORE_DATABASE_RECEIVED=docs-recibidos,FIRESTORE_DATABASE_SENT=docs-enviados,GCS_OUTPUT_BUCKET=questionsanswersproject,GCS_OUTPUT_PREFIX=documentos_correspondencia/doc_enviados_propuestos'
+      - 'GCP_PROJECT_ID=devhack-3f0c2,GOOGLE_CLOUD_PROJECT=devhack-3f0c2,GCP_REGION=us-central1,GCS_INGESTION_BUCKET=communications-cys,GCS_RECEIVED_PREFIX=COMMUNICATIONS_RECEIVED/,GCS_SENT_PREFIX=COMMUNICATIONS_SENT/,FIRESTORE_DATABASE=(default),EMBEDDING_MODEL=gemini-embedding-2,OCR_MODEL=gemini-3-flash-preview,LOG_LEVEL=INFO,FIRESTORE_DATABASE_RECEIVED=docs-recibidos,FIRESTORE_DATABASE_SENT=docs-enviados,GCS_OUTPUT_BUCKET=questionsanswersproject,GCS_OUTPUT_PREFIX=documentos_correspondencia/doc_enviados_propuestos,ENABLE_MLFLOW=false'
       - '--set-secrets'
-      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest'
+      - 'GEMINI_API_KEY=GOOGLE_GENAI_API_KEY:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/ingestion-pipeline:latest'
